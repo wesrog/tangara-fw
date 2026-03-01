@@ -375,6 +375,17 @@ auto Playlist::nextItem(std::span<TCHAR> buf)
     // Does this look like a URL-encoded path? Decode it to a filename.
     // Tangara handles filenames, not URIs.
     if (line.find('%') != std::string::npos) {
+      // First, check if the literal (non-decoded) file exists
+      // This means we don't incorrectly decode a valid file name
+      FILINFO fno;
+      FRESULT stat_res = f_stat(line.data(), &fno);
+      
+      if (stat_res == FR_OK) {
+        // File exists with percent-encoded name, return as-is
+        return line;
+      }
+      
+      // Literal file doesn't exist, try decoding
       mutated_.reserve(line.size());
       for (size_t n = 0; n < line.size(); ++n) {
         if (n < (line.size() - 2) && line[n] == '%' &&
