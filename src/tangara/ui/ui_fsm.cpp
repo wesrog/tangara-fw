@@ -31,7 +31,7 @@
 #include "luavgl.h"
 #include "misc/lv_color.h"
 #include "misc/lv_utils.h"
-#include "others/snapshot/lv_snapshot.h"
+#include "draw/snapshot/lv_snapshot.h"
 #include "tasks.hpp"
 #include "tick/lv_tick.h"
 #include "tinyfsm.hpp"
