@@ -274,7 +274,7 @@ settings.HeadphonesSettings = SettingsScreen:new {
     }, "settings_title")
 
     local volume_chooser = self.content:Dropdown {
-      options = "Line Level (-10 dB)\nCD Level (+6 dB)\nMaximum (+10dB)",
+      options = "Line Level (-10 dB)\nCD Level (+6 dB)\nMaximum (+10 dB)",
       selected = 1,
       symbol = img.chevron,
     }
