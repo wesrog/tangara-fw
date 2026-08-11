@@ -9,6 +9,7 @@
 #include <bits/ranges_algo.h>
 #include <stdint.h>
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdint>
 #include <functional>
@@ -159,6 +160,7 @@ auto Database::Open(ITagParser& parser,
               ESP_LOGI(kTag, "opening db failed. recreating.");
               db = CreateNewDatabase(options, collator);
               if (db == nullptr) {
+                sIsDbOpen.store(false);
                 return cpp::fail(FAILED_TO_OPEN);
               }
             }
@@ -168,6 +170,7 @@ auto Database::Open(ITagParser& parser,
               delete db;
               db = CreateNewDatabase(options, collator);
               if (db == nullptr) {
+                sIsDbOpen.store(false);
                 return cpp::fail(FAILED_TO_OPEN);
               }
             }
