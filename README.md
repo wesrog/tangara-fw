@@ -8,6 +8,11 @@
 > [cool-tech-zone/tangara-fw on Codeberg](https://codeberg.org/cool-tech-zone/tangara-fw).
 > Please don't report problems with this fork upstream.
 >
+> That said, ideas are very welcome! If you have a feature you'd like to see,
+> something that bugs you, or a tweak you've been meaning to try, please
+> [open an issue](https://github.com/wesrog/tangara-fw/issues) here and
+> suggest it. Pull requests are welcome too.
+>
 > Changes in this fork so far:
 >
 > - An iPod-style feel for the touch wheel: smoother scrolling, acceleration,
