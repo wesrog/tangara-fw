@@ -256,22 +256,25 @@ TEST_CASE("wheel scroller jump mode", "[unit]") {
     REQUIRE(finger.jumps < forward);
   }
 
-  SECTION("slowing down goes back to scrolling items") {
+  SECTION("slowing down keeps jumping") {
     scroller.setJumpAllowed(true);
     finger.move(-512, 1024);
     REQUIRE(scroller.jumping());
     int jumps = finger.jumps;
     int ticks = finger.move(-160, 96);
-    REQUIRE(finger.jump_ends == 1);
-    REQUIRE(!scroller.jumping());
-    REQUIRE(finger.jumps == jumps);
-    REQUIRE(ticks > 0);
+    REQUIRE(finger.jump_ends == 0);
+    REQUIRE(scroller.jumping());
+    REQUIRE(finger.jumps == jumps + 160 / WheelScroller::kJumpStep);
+    REQUIRE(ticks == 0);
   }
 
-  SECTION("stopping ends jump mode") {
+  SECTION("stopping keeps jump mode until the finger lifts") {
     scroller.setJumpAllowed(true);
     finger.move(-512, 1024);
-    finger.rest(200'000);
+    finger.rest(1'000'000);
+    REQUIRE(finger.jump_ends == 0);
+    REQUIRE(scroller.jumping());
+    finger.lift();
     REQUIRE(finger.jump_ends == 1);
     REQUIRE(!scroller.jumping());
   }

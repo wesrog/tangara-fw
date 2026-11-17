@@ -71,11 +71,9 @@ class WheelScroller {
 
   // Jump mode, for long lists. Spinning faster than kJumpStartSpeed, after at
   // least kJumpMinTravel of travel, stops scrolling item by item and instead
-  // reports a jump (e.g. to the next letter) every kJumpStep of rotation.
-  // Jump mode ends when the spin slows below kJumpExitSpeed, the finger stops,
-  // or the finger lifts.
+  // reports a jump (e.g. to the next letter) every kJumpStep of rotation, at
+  // any speed, until the finger lifts.
   static constexpr int kJumpStartSpeed = 640;
-  static constexpr int kJumpExitSpeed = 192;
   static constexpr int kJumpMinTravel = 128;
   static constexpr int kJumpStep = 40;
 

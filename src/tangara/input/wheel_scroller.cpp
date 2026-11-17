@@ -140,9 +140,6 @@ auto WheelScroller::update(bool touched,
     if (now_us - last_move_us_ > kStillUs) {
       speed_ = 0;
       travel_ = 0;
-      if (jumping_) {
-        endJump();
-      }
     }
     return 0;
   }
@@ -157,11 +154,7 @@ auto WheelScroller::update(bool touched,
   }
 
   if (jumping_) {
-    if (speed_ < kJumpExitSpeed) {
-      // Slowed down; go back to scrolling item by item.
-      endJump();
-      return 0;
-    }
+    // Once jumping, keep jumping (at any speed) until the finger lifts.
     jump_accum_ += movement;
     jumps_ = jump_accum_ / kJumpStep;
     jump_accum_ -= jumps_ * kJumpStep;
