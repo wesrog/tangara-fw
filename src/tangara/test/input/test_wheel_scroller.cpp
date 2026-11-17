@@ -63,7 +63,7 @@ struct FakeFinger {
 
 TEST_CASE("wheel scroller", "[unit]") {
   WheelScroller scroller;
-  scroller.setStep(WheelScroller::kDefaultStep);
+  scroller.setStep(20);
   FakeFinger finger{scroller};
 
   SECTION("landing and resting never scroll") {

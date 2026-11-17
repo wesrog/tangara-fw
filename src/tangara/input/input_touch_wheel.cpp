@@ -47,6 +47,7 @@ TouchWheel::TouchWheel(drivers::NvsStorage& nvs,
       was_touched_(false),
       touch_down_pos_(0),
       touch_down_us_(0),
+      last_raw_touch_us_(0),
       moved_since_touch_(false) {}
 
 auto TouchWheel::read(lv_indev_data_t* data,
@@ -58,6 +59,15 @@ auto TouchWheel::read(lv_indev_data_t* data,
   wheel_.Update();
   auto wheel_data = wheel_.GetTouchWheelData();
   const int64_t now_us = esp_timer_get_time();
+
+  // A light touch can briefly drop out for a reading or two. Ride through
+  // short dropouts instead of treating them as the finger lifting, which would
+  // throw away scroll progress and make light scrolling feel uneven.
+  if (wheel_data.is_wheel_touched) {
+    last_raw_touch_us_ = now_us;
+  } else if (was_touched_ && now_us - last_raw_touch_us_ < kReleaseGraceUs) {
+    wheel_data.is_wheel_touched = true;
+  }
   int ticks = scroller_.update(wheel_data.is_wheel_touched,
                                wheel_data.wheel_position, now_us);
 

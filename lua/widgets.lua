@@ -342,7 +342,12 @@ function widgets.InfiniteList(parent, iterator, opts)
     if opts.callback then
       btn:onClicked(opts.callback(item))
     end
+    -- Scroll instantly rather than animating on every step. Animating each
+    -- item while the wheel is spinning makes the list feel chunky, as each
+    -- animation is cut short by the next.
+    btn:clear_flag(lvgl.FLAG.SCROLL_ON_FOCUS)
     btn:onevent(lvgl.EVENT.FOCUSED, function()
+      btn:scroll_to_view(false)
       if refreshing then return end
       if this_item > last_selected and this_item - first_index > 3 then
         -- moving forward

@@ -30,8 +30,8 @@ namespace input {
 class WheelScroller {
  public:
   // Rotation (in wheel units) per scroll tick when moving slowly. The default
-  // is about 28 degrees, or roughly 13 items per revolution.
-  static constexpr int kDefaultStep = 20;
+  // is about 20 degrees, or roughly 18 items per revolution.
+  static constexpr int kDefaultStep = 14;
   static constexpr int kMinStep = 5;
   static constexpr int kMaxStep = 35;
 

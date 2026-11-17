@@ -76,6 +76,13 @@ TouchWheel::TouchWheel() {
 
   WriteRegister(Register::CHARGE_TIME, 0x10);
 
+  // Lower the detection threshold of the wheel keys (the chip's default is
+  // 10), so that a light touch is detected reliably rather than needing to
+  // press firmly. The centre button keeps the default.
+  for (int i = 0; i < 3; i++) {
+    WriteRegister(Register::DETECT_THRESHOLD_BASE + i, 7);
+  }
+
   // Unused extra keys. All disabled.
   for (int i = 5; i < 12; i++) {
     WriteRegister(Register::KEY_CONTROL_BASE + i, 1);
