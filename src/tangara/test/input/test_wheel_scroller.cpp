@@ -103,7 +103,8 @@ TEST_CASE("wheel scroller", "[unit]") {
     scroller.setAcceleration(false);
     finger.land();
     finger.rest(100'000);
-    REQUIRE(finger.move(-50, 128) == 2);  // 10 units of progress left over
+    // 8 for the first item, then 20 each; 2 units of progress left over.
+    REQUIRE(finger.move(-50, 128) == 3);
     // Turning around costs exactly one step from the turnaround point.
     REQUIRE(finger.move(19, 128) == 0);
     REQUIRE(finger.move(1, 128) == -1);
@@ -113,6 +114,7 @@ TEST_CASE("wheel scroller", "[unit]") {
     scroller.setAcceleration(false);
     finger.land();
     finger.rest(100'000);
+    REQUIRE(finger.move(-8, 128) == 1);
     REQUIRE(finger.move(-15, 128) == 0);
     REQUIRE(finger.move(2, 128) == 0);
     REQUIRE(finger.move(-7, 128) == 1);  // net 20 units
@@ -171,15 +173,32 @@ TEST_CASE("wheel scroller", "[unit]") {
     REQUIRE(fast <= 64 * WheelScroller::kMaxGain);
   }
 
+  SECTION("the first item of a touch is cheaper") {
+    finger.land();
+    finger.rest(100'000);
+    REQUIRE(finger.move(-WheelScroller::kFirstStep + 1, 128) == 0);
+    REQUIRE(finger.move(-1, 128) == 1);
+    // After that, a full step per item.
+    REQUIRE(finger.move(-19, 128) == 0);
+    REQUIRE(finger.move(-1, 128) == 1);
+  }
+
+  SECTION("quick short nudges are never accelerated") {
+    finger.land();
+    finger.rest(100'000);
+    // A fast flick: 8 units for the first item, then 20 per item.
+    REQUIRE(finger.move(-48, 1024) == 3);
+  }
+
   SECTION("lifting resets everything") {
     scroller.setAcceleration(false);
     finger.land();
     finger.rest(100'000);
-    REQUIRE(finger.move(-15, 128) == 0);
+    REQUIRE(finger.move(-7, 128) == 0);
     finger.lift();
     finger.land();
     finger.rest(100'000);
-    REQUIRE(finger.move(-15, 128) == 0);
+    REQUIRE(finger.move(-7, 128) == 0);
   }
 }
 

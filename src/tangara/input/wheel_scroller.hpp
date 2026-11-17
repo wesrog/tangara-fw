@@ -30,9 +30,11 @@ namespace input {
 class WheelScroller {
  public:
   // Rotation (in wheel units) per scroll tick when moving slowly. The default
-  // is about 20 degrees, or roughly 18 items per revolution.
-  static constexpr int kDefaultStep = 14;
+  // is about 22 degrees, or 16 items per revolution.
+  static constexpr int kDefaultStep = 16;
   static constexpr int kMinStep = 5;
+  // The first tick after the finger lands only needs this much rotation.
+  static constexpr int kFirstStep = 8;
   static constexpr int kMaxStep = 35;
 
   // A single-sample jump larger than this (90 degrees) is not a plausible
@@ -60,6 +62,10 @@ class WheelScroller {
   static constexpr int kAccelStartSpeed = 256;
   static constexpr int kAccelFullSpeed = 640;
   static constexpr int kMaxGain = 4;
+  // Acceleration only kicks in once the finger has travelled this far in one
+  // direction without stopping, so that quick short nudges (to move one or
+  // two items) are never accelerated past the item you wanted.
+  static constexpr int kAccelMinTravel = 96;
 
   WheelScroller();
 
@@ -92,6 +98,10 @@ class WheelScroller {
   int pending_reverse_;
   // Smoothed rotational speed, in units per second.
   int speed_;
+  // Distance travelled in the current direction without stopping, in units.
+  int travel_;
+  // Whether the next movement is the first of this touch.
+  bool first_move_;
 };
 
 }  // namespace input

@@ -33,7 +33,9 @@ WheelScroller::WheelScroller()
       last_pos_(0),
       accum_x16_(0),
       pending_reverse_(0),
-      speed_(0) {}
+      speed_(0),
+      travel_(0),
+      first_move_(false) {}
 
 auto WheelScroller::setStep(int units) -> void {
   step_x16_ = std::clamp(units, kMinStep, kMaxStep) * kSubUnits;
@@ -44,7 +46,7 @@ auto WheelScroller::setAcceleration(bool enabled) -> void {
 }
 
 auto WheelScroller::gainX16() const -> int {
-  if (!accel_ || speed_ <= kAccelStartSpeed) {
+  if (!accel_ || travel_ < kAccelMinTravel || speed_ <= kAccelStartSpeed) {
     return kSubUnits;
   }
   if (speed_ >= kAccelFullSpeed) {
@@ -74,6 +76,8 @@ auto WheelScroller::update(bool touched,
     accum_x16_ = 0;
     pending_reverse_ = 0;
     speed_ = 0;
+    travel_ = 0;
+    first_move_ = true;
     return 0;
   }
 
@@ -96,6 +100,7 @@ auto WheelScroller::update(bool touched,
   if (std::abs(movement) > max_jump) {
     // Implausible jump. Re-anchor at the new position and carry on.
     speed_ = 0;
+    travel_ = 0;
     pending_reverse_ = 0;
     return 0;
   }
@@ -105,6 +110,7 @@ auto WheelScroller::update(bool touched,
     // a single still sample doesn't mean the finger has stopped.
     if (now_us - last_move_us_ > kStillUs) {
       speed_ = 0;
+      travel_ = 0;
     }
     return 0;
   }
@@ -131,12 +137,25 @@ auto WheelScroller::update(bool touched,
     movement = pending_reverse_;
     pending_reverse_ = 0;
     accum_x16_ = 0;
+    travel_ = 0;
   } else {
     // Still going the same way; any absorbed wobble cancels out.
     movement += pending_reverse_;
     pending_reverse_ = 0;
   }
 
+  if (first_move_ && movement != 0) {
+    // The first item of a stroke is cheaper than the rest. Without this,
+    // there would be a range of small movements too big to be a tap but too
+    // small to scroll, which makes nudging by one item feel unresponsive.
+    first_move_ = false;
+    int head_start = step_x16_ - kFirstStep * kSubUnits;
+    if (head_start > 0) {
+      accum_x16_ += sign(movement) * head_start;
+    }
+  }
+
+  travel_ += std::abs(movement);
   accum_x16_ += movement * gainX16();
 
   int ticks = accum_x16_ / step_x16_;

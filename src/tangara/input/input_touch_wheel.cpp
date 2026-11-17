@@ -141,19 +141,19 @@ auto TouchWheel::read(lv_indev_data_t* data,
 
     const auto ustate =
         up_.update(pressing && drivers::TouchWheel::isAngleWithin(
-                                   wheel_data.wheel_position, 0, 32),
+                                   wheel_data.wheel_position, 0, kTapZone),
                    data);
     const auto rstate =
         right_.update(pressing && drivers::TouchWheel::isAngleWithin(
-                                      wheel_data.wheel_position, 192, 32),
+                                      wheel_data.wheel_position, 192, kTapZone),
                       data);
     const auto dstate =
         down_.update(pressing && drivers::TouchWheel::isAngleWithin(
-                                     wheel_data.wheel_position, 128, 32),
+                                     wheel_data.wheel_position, 128, kTapZone),
                      data);
     const auto lstate =
         left_.update(pressing && drivers::TouchWheel::isAngleWithin(
-                                     wheel_data.wheel_position, 64, 32),
+                                     wheel_data.wheel_position, 64, kTapZone),
                      data);
 
     // This is for haptic feedback.
