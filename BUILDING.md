@@ -41,6 +41,26 @@ idf.py -p /dev/serial/by-id/usb-cool_tech_zone_Tangara_* -b 1000000 flash
 
 (give or take the correct serial port)
 
+### Faster flashing while developing
+
+`idf.py flash` rewrites every image on the device (about 7.5 MB, which takes
+80 to 100 seconds) even if only one Lua file changed. For test builds you can
+use `tools/quickflash.py` instead. It builds the project, asks the device for a
+checksum of each 64 KiB chunk of flash, and only writes the chunks that differ:
+
+```
+tools/quickflash.py -p /dev/serial/by-id/usb-cool_tech_zone_Tangara_*
+```
+
+When nothing has changed this takes about 13 seconds, most of which is spent on
+the checksums. It compares against what is actually on the device, so it's
+safe to mix with `idf.py flash`. If the comparison fails for any reason, it
+writes everything. It refuses to start while another esptool, `idf.py flash`
+or `idf.py monitor` is running, since two programs using the port at once
+corrupt the flash write. Use `--no-build` to skip the build, `--full` to
+write everything, and `-b` to change the baud rate (default 1500000; 2000000
+also works, 3000000 doesn't).
+
 If `idf.py flash` complains about the serial port not being readable, you'll need to add your user account to either the `dialout` or `uucp` groups, try `dialout` first.  After, logout of your current session then try to flash again.
 
 # Running tests

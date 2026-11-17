@@ -32,6 +32,10 @@ namespace lua {
 [[maybe_unused]] static constexpr char kTag[] = "lua_queue";
 
 static auto queue_add(lua_State* state) -> int {
+  // Read the optional skip count before Bridge::Get, which pushes onto the
+  // stack and would otherwise show up as argument 2.
+  bool has_skip = lua_gettop(state) >= 2 && lua_isinteger(state, 2);
+  lua_Integer skip = has_skip ? lua_tointeger(state, 2) : 0;
   Bridge* instance = Bridge::Get(state);
 
   if (lua_isinteger(state, 1)) {
@@ -49,10 +53,22 @@ static auto queue_add(lua_State* state) -> int {
       queue.append(path);
     });
   } else {
-    database::Iterator* it = db_check_iterator(state, 1);
-    instance->services().bg_worker().Dispatch<void>([=]() {
+    // Copy the iterator now; the Lua object may be collected before the
+    // background task runs.
+    database::Iterator it = *db_check_iterator(state, 1);
+    // Optionally skip the first n records. This is done off the UI task, and
+    // with a single seek rather than one per record.
+    instance->services().bg_worker().Dispatch<void>([=]() mutable {
       audio::TrackQueue& queue = instance->services().track_queue();
-      queue.append(database::TrackIterator{*it});
+      if (skip > 0) {
+        it.skip(skip);
+      }
+      if (has_skip) {
+        // The user picked this track, so play it first even when shuffling.
+        queue.appendStartingWithFirst(database::TrackIterator{it});
+      } else {
+        queue.append(database::TrackIterator{it});
+      }
     });
   }
 

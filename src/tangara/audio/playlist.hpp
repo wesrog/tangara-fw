@@ -8,6 +8,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <variant>
 
 #include "ff.h"
@@ -44,6 +45,9 @@ class Playlist {
   auto next() -> void;
   auto prev() -> void;
   auto skipTo(size_t position) -> void;
+
+  /* The entry after the current one, without moving to it. */
+  auto peekNext() -> std::optional<std::string>;
 
   auto writeToFile(const std::string& filepath) -> bool;
 
@@ -90,6 +94,13 @@ class MutablePlaylist : public Playlist {
 
   auto clear() -> bool;
   auto append(Item i) -> void;
+
+  /*
+   * Appends many paths at once, with a single write and sync. Much faster
+   * than calling append() for each one, since every append touches the SD
+   * card.
+   */
+  auto appendAll(const std::vector<std::string>& paths) -> void;
 
  private:
   auto clearLocked() -> bool;

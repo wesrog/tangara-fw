@@ -128,11 +128,9 @@ return screen:new {
       if (track and longform_content) then
         queue.play_from(track.filepath, track.saved_position)
       else
-        local from_here = list_iterator:clone()
-        for _ = 1, index do
-          from_here:next()
-        end
-        queue.add(from_here)
+        -- Skip to the selected track in the background, rather than walking
+        -- the list here one database lookup at a time.
+        queue.add(list_iterator, index)
       end
       playback.playing:set(true)
       backstack.push(playing:new())
