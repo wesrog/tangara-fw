@@ -6,6 +6,7 @@
 
 #include "audio/audio_fsm.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <future>
 #include <memory>
@@ -22,6 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "freertos/projdefs.h"
+#include "freertos/timers.h"
 #include "tinyfsm.hpp"
 
 #include "audio/audio_decoder.hpp"
@@ -52,6 +54,12 @@ namespace audio {
 
 static const char kQueueKey[] = "audio:queue";
 static const char kCurrentFileKey[] = "audio:current";
+
+// How long to wait after the last volume (or volume setting) change before
+// writing it to flash. Without this, the volume was only saved when the
+// device went idle, so turning it off or resetting it lost the change.
+static const TickType_t kSettingsWriteDelay = pdMS_TO_TICKS(2000);
+static TimerHandle_t sSettingsWriteTimer = nullptr;
 
 std::shared_ptr<system_fsm::ServiceLocator> AudioState::sServices;
 
@@ -362,7 +370,14 @@ void AudioState::react(const system_fsm::BluetoothEvent& ev) {
 }
 
 void AudioState::react(const StepUpVolume& ev) {
-  if (sOutput->AdjustVolumeUp()) {
+  bool changed = false;
+  for (uint_fast8_t i = 0; i < std::max<uint_fast8_t>(ev.steps, 1); i++) {
+    if (!sOutput->AdjustVolumeUp()) {
+      break;
+    }
+    changed = true;
+  }
+  if (changed) {
     commitVolume();
     events::Ui().Dispatch(VolumeChanged{
         .percent = sOutput->GetVolumePct(),
@@ -372,7 +387,14 @@ void AudioState::react(const StepUpVolume& ev) {
 }
 
 void AudioState::react(const StepDownVolume& ev) {
-  if (sOutput->AdjustVolumeDown()) {
+  bool changed = false;
+  for (uint_fast8_t i = 0; i < std::max<uint_fast8_t>(ev.steps, 1); i++) {
+    if (!sOutput->AdjustVolumeDown()) {
+      break;
+    }
+    changed = true;
+  }
+  if (changed) {
     commitVolume();
     events::Ui().Dispatch(VolumeChanged{
         .percent = sOutput->GetVolumePct(),
@@ -408,6 +430,7 @@ void AudioState::react(const SetVolumeLimit& ev) {
 
   sI2SOutput->SetMaxVolume(limit_in_dac_units);
   sServices->nvs().AmpMaxVolume(limit_in_dac_units);
+  scheduleSettingsWrite();
 
   events::Ui().Dispatch(VolumeLimitChanged{
       .new_limit_db = ev.limit_db,
@@ -421,6 +444,7 @@ void AudioState::react(const SetVolumeLimit& ev) {
 void AudioState::react(const SetVolumeBalance& ev) {
   sOutput->SetVolumeImbalance(ev.left_bias);
   sServices->nvs().AmpLeftBias(ev.left_bias);
+  scheduleSettingsWrite();
 
   events::Ui().Dispatch(VolumeBalanceChanged{
       .left_bias = ev.left_bias,
@@ -511,6 +535,32 @@ auto AudioState::commitVolume() -> void {
     }
     sServices->nvs().BluetoothVolume(dev->mac, vol);
   }
+  scheduleSettingsWrite();
+}
+
+static void settings_write_cb(TimerHandle_t) {
+  // Timer callbacks run on the small FreeRTOS timer task. Flash writes must
+  // also not happen on a task whose stack is in PSRAM (such as bg_worker),
+  // since the cache is disabled during the write. Hand the write to the audio
+  // task, which shares the main task's internal-RAM stack with the system FSM
+  // (where Idle already calls Write()).
+  events::Audio().Dispatch(internal::WriteSettings{});
+}
+
+void AudioState::react(const internal::WriteSettings&) {
+  sServices->nvs().Write();
+}
+
+auto AudioState::scheduleSettingsWrite() -> void {
+  if (!sSettingsWriteTimer) {
+    sSettingsWriteTimer = xTimerCreate("nvs_write", kSettingsWriteDelay, false,
+                                       NULL, settings_write_cb);
+    if (!sSettingsWriteTimer) {
+      return;
+    }
+  }
+  // Restarts the countdown if it is already running.
+  xTimerReset(sSettingsWriteTimer, 0);
 }
 
 namespace states {
