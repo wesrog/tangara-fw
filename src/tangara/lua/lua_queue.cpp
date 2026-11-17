@@ -56,12 +56,13 @@ static auto queue_add(lua_State* state) -> int {
     // Copy the iterator now; the Lua object may be collected before the
     // background task runs.
     database::Iterator it = *db_check_iterator(state, 1);
-    // Optionally skip the first n records. This is done off the UI task, and
-    // with a single seek rather than one per record.
+    // Optionally skip the first n records (or go back n records). This is
+    // done off the UI task, and with a single seek rather than one per record.
     instance->services().bg_worker().Dispatch<void>([=]() mutable {
       audio::TrackQueue& queue = instance->services().track_queue();
-      if (skip > 0) {
-        it.skip(skip);
+      if (skip != 0) {
+        // May be negative, for lists that started part way through.
+        it.skip(static_cast<int>(skip));
       }
       if (has_skip) {
         // The user picked this track, so play it first even when shuffling.

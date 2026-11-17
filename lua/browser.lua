@@ -118,11 +118,10 @@ return screen:new {
       end
     end
 
-    local list_iterator = self.iterator:clone()
-
     -- Plays a track from this list, then carries on through the rest of the
-    -- list, like selecting a song in an album.
-    local play_track = function(contents, index)
+    -- list, like selecting a song in an album. index is relative to base
+    -- (see widgets.InfiniteList), and may be negative.
+    local play_track = function(contents, index, base)
       queue.clear()
       local track = database.track_by_id(contents)
       if (track and longform_content) then
@@ -130,7 +129,7 @@ return screen:new {
       else
         -- Skip to the selected track in the background, rather than walking
         -- the list here one database lookup at a time.
-        queue.add(list_iterator, index)
+        queue.add(base, index)
       end
       playback.playing:set(true)
       backstack.push(playing:new())
@@ -139,7 +138,7 @@ return screen:new {
     widgets.InfiniteList(self.root, self.iterator, {
       focus_first_item = true,
       get_icon = get_icon_func,
-      callback = function(item, index)
+      callback = function(item, index, base)
         return function()
           local contents = item:contents()
           if type(contents) == "userdata" then
@@ -150,13 +149,13 @@ return screen:new {
               breadcrumb = tostring(item)
             })
           else
-            play_track(contents, index)
+            play_track(contents, index, base)
           end
         end
       end,
       -- Holding the bottom of the click wheel plays the highlighted item
       -- straight away. Albums, artists, etc. play all of their contents.
-      play_callback = function(item, index)
+      play_callback = function(item, index, base)
         return function()
           local contents = item:contents()
           if type(contents) == "userdata" then
@@ -165,7 +164,7 @@ return screen:new {
             playback.playing:set(true)
             backstack.push(playing:new())
           else
-            play_track(contents, index)
+            play_track(contents, index, base)
           end
         end
       end,

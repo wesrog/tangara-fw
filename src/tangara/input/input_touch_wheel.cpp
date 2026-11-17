@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <variant>
 
+#include "core/lv_group.h"
+#include "core/lv_obj.h"
 #include "indev/lv_indev.h"
 
 #include "drivers/haptics.hpp"
@@ -39,6 +41,9 @@ TouchWheel::TouchWheel(drivers::NvsStorage& nvs,
       right_("right", actions::nextTrack(queue), {}, {}, {}),
       down_("down", actions::togglePlayPause(), {}, {}, {}),
       left_("left", actions::prevTrack(queue), {}, actions::goBack(), {}),
+      jump_next_("jump_next", {}),
+      jump_prev_("jump_prev", {}),
+      jump_end_("jump_end", {}),
       locked_(false),
       is_scrolling_(false),
       last_scroll_us_(0),
@@ -84,8 +89,31 @@ auto TouchWheel::read(lv_indev_data_t* data,
   } else if (was_touched_ && now_us - last_raw_touch_us_ < kReleaseGraceUs) {
     wheel_data.is_wheel_touched = true;
   }
+  // Long lists mark their rows with USER_1, to say that spinning fast should
+  // jump through them (e.g. by letter) rather than scroll row by row.
+  lv_group_t* group = lv_group_get_default();
+  lv_obj_t* focused = group ? lv_group_get_focused(group) : nullptr;
+  scroller_.setJumpAllowed(focused &&
+                           lv_obj_has_flag(focused, LV_OBJ_FLAG_USER_1));
+
   int ticks = scroller_.update(wheel_data.is_wheel_touched,
                                wheel_data.wheel_position, now_us);
+
+  // Hand jumps to the list. This happens before this read's ticks (if any)
+  // are applied, so the list is already where the jumps left it.
+  if (scroller_.jumpEnded()) {
+    jump_end_.hooks()[0].get().invoke(data);
+  }
+  for (int i = 0; i < scroller_.jumps(); i++) {
+    jump_next_.hooks()[0].get().invoke(data);
+  }
+  for (int i = 0; i > scroller_.jumps(); i--) {
+    jump_prev_.hooks()[0].get().invoke(data);
+  }
+  if (scroller_.jumps() != 0) {
+    // One click per jump, for haptic feedback.
+    events.push_back(InputEvent::kOnPress);
+  }
 
   const bool touched = wheel_data.is_wheel_touched;
   const bool landed = touched && !was_touched_;
@@ -123,7 +151,7 @@ auto TouchWheel::read(lv_indev_data_t* data,
     // Resting on the wheel for a while isn't a tap. (It may be a hold.)
     tap_ok_ = false;
   }
-  if (touched && ticks != 0) {
+  if (touched && (ticks != 0 || scroller_.jumping())) {
     // Anything that scrolls is neither a tap nor a hold.
     tap_ok_ = false;
     hold_ok_ = false;
@@ -134,9 +162,9 @@ auto TouchWheel::read(lv_indev_data_t* data,
     // User has released the wheel.
     is_scrolling_ = false;
     data->enc_diff = 0;
-  } else if (ticks != 0) {
+  } else if (ticks != 0 || scroller_.jumping()) {
     // User is touching the wheel, and has just passed the sensitivity
-    // threshold for a scroll tick.
+    // threshold for a scroll tick (or is spinning through a long list).
     is_scrolling_ = true;
     data->enc_diff = ticks;
   } else {
@@ -206,7 +234,8 @@ auto TouchWheel::name() -> std::string {
 
 auto TouchWheel::triggers()
     -> std::vector<std::reference_wrapper<TriggerHooks>> {
-  return {centre_, up_, right_, down_, left_};
+  return {centre_, up_, right_, down_, left_, jump_next_, jump_prev_,
+          jump_end_};
 }
 
 auto TouchWheel::onLock() -> void {

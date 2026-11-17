@@ -274,6 +274,34 @@ static auto db_iterator_clone(lua_State* state) -> int {
   return 1;
 }
 
+// iterator:skip(n): moves by n records (n may be negative), with one seek.
+static auto db_iterator_skip(lua_State* state) -> int {
+  database::Iterator* it = db_check_iterator(state, 1);
+  lua_Integer n = luaL_checkinteger(state, 2);
+  it->skip(static_cast<int>(n));
+  return 0;
+}
+
+// iterator:jump(direction): moves to the first record of the next (1) or
+// previous (-1) letter, and returns it. Returns nil without moving if there
+// is no such letter.
+static auto db_iterator_jump(lua_State* state) -> int {
+  database::Iterator* it = db_check_iterator(state, 1);
+  lua_Integer dir = luaL_checkinteger(state, 2);
+  if (!it->jumpGroup(static_cast<int>(dir)) || !it->value()) {
+    lua_pushnil(state);
+    return 1;
+  }
+  push_lua_record(state, *it->value());
+  return 1;
+}
+
+static auto db_iterator_sorted_by_text(lua_State* state) -> int {
+  database::Iterator* it = db_check_iterator(state, 1);
+  lua_pushboolean(state, it->sortedByText());
+  return 1;
+}
+
 static auto db_iterator_gc(lua_State* state) -> int {
   database::Iterator* it = db_check_iterator(state, 1);
   delete it;
@@ -286,6 +314,10 @@ static const struct luaL_Reg kDbIteratorFuncs[] = {{"next", db_iterate},
                                                    {"__call", db_iterate},
                                                    {"__gc", db_iterator_gc},
                                                    {"value", db_iterator_value},
+                                                   {"skip", db_iterator_skip},
+                                                   {"jump", db_iterator_jump},
+                                                   {"sorted_by_text",
+                                                    db_iterator_sorted_by_text},
                                                    {NULL, NULL}};
 
 static auto record_text(lua_State* state) -> int {

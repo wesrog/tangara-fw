@@ -69,6 +69,16 @@ class WheelScroller {
   // two items) are never accelerated past the item you wanted.
   static constexpr int kAccelMinTravel = 96;
 
+  // Jump mode, for long lists. Spinning faster than kJumpStartSpeed, after at
+  // least kJumpMinTravel of travel, stops scrolling item by item and instead
+  // reports a jump (e.g. to the next letter) every kJumpStep of rotation.
+  // Jump mode ends when the spin slows below kJumpExitSpeed, the finger stops,
+  // or the finger lifts.
+  static constexpr int kJumpStartSpeed = 640;
+  static constexpr int kJumpExitSpeed = 192;
+  static constexpr int kJumpMinTravel = 128;
+  static constexpr int kJumpStep = 40;
+
   WheelScroller();
 
   auto setStep(int units) -> void;
@@ -77,6 +87,14 @@ class WheelScroller {
   // Feeds in one sample, and returns the number of ticks to scroll by.
   // Positive ticks are anticlockwise, matching the existing wheel behaviour.
   auto update(bool touched, uint8_t position, uint64_t now_us) -> int;
+
+  // Whether fast spins may switch to jump mode. Set this before update().
+  auto setJumpAllowed(bool allowed) -> void;
+  // Jumps made by the last update(); positive is anticlockwise, like ticks.
+  auto jumps() const -> int { return jumps_; }
+  // Whether the last update() left jump mode.
+  auto jumpEnded() const -> bool { return jump_ended_; }
+  auto jumping() const -> bool { return jumping_; }
 
   // Exposed for tests and debugging.
   auto speed() const -> int { return speed_; }
@@ -104,6 +122,15 @@ class WheelScroller {
   int travel_;
   // Whether the next movement is the first of this touch.
   bool first_move_;
+
+  auto endJump() -> void;
+
+  bool jump_allowed_;
+  bool jumping_;
+  // Rotation since the last jump, in raw units.
+  int jump_accum_;
+  int jumps_;
+  bool jump_ended_;
 };
 
 }  // namespace input

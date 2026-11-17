@@ -20,6 +20,9 @@ struct FakeFinger {
   WheelScroller& scroller;
   uint64_t now_us = 1'000'000;
   double pos = 100;
+  // Totals of jump mode output, across all samples.
+  int jumps = 0;
+  int jump_ends = 0;
 
   auto land() -> int { return sample(); }
 
@@ -27,6 +30,8 @@ struct FakeFinger {
     uint8_t raw =
         static_cast<uint8_t>(static_cast<int>(std::lround(pos)) & 0xFF);
     int t = scroller.update(true, raw, now_us);
+    jumps += scroller.jumps();
+    jump_ends += scroller.jumpEnded() ? 1 : 0;
     now_us += kSampleUs;
     return t;
   }
@@ -57,6 +62,8 @@ struct FakeFinger {
 
   auto lift() -> void {
     scroller.update(false, 0, now_us);
+    jumps += scroller.jumps();
+    jump_ends += scroller.jumpEnded() ? 1 : 0;
     now_us += kSampleUs;
   }
 };
@@ -209,6 +216,80 @@ TEST_CASE("wheel scroller default step", "[unit]") {
   finger.land();
   finger.rest(100'000);
   REQUIRE(finger.move(-WheelScroller::kDefaultStep, 128) == 1);
+}
+
+TEST_CASE("wheel scroller jump mode", "[unit]") {
+  WheelScroller scroller;
+  FakeFinger finger{scroller};
+  finger.land();
+  finger.rest(100'000);
+
+  SECTION("fast spins never jump unless allowed") {
+    finger.move(-1024, 1024);
+    REQUIRE(finger.jumps == 0);
+    REQUIRE(finger.jump_ends == 0);
+  }
+
+  SECTION("slow scrolling never jumps") {
+    scroller.setJumpAllowed(true);
+    int ticks = finger.move(-512, 384);
+    REQUIRE(finger.jumps == 0);
+    REQUIRE(ticks > 0);
+  }
+
+  SECTION("fast spins jump instead of scrolling") {
+    scroller.setJumpAllowed(true);
+    int ticks = finger.move(-1024, 1024);
+    // Some items scroll before the spin is fast enough, then it jumps.
+    REQUIRE(ticks < WheelScroller::kJumpMinTravel / 8);
+    REQUIRE(finger.jumps >= 1024 / 2 / WheelScroller::kJumpStep);
+    REQUIRE(finger.jumps <= 1024 / WheelScroller::kJumpStep + 1);
+    REQUIRE(scroller.jumping());
+  }
+
+  SECTION("spinning back jumps back") {
+    scroller.setJumpAllowed(true);
+    finger.move(-512, 1024);
+    int forward = finger.jumps;
+    REQUIRE(forward > 0);
+    finger.move(400, 1024);
+    REQUIRE(finger.jumps < forward);
+  }
+
+  SECTION("slowing down goes back to scrolling items") {
+    scroller.setJumpAllowed(true);
+    finger.move(-512, 1024);
+    REQUIRE(scroller.jumping());
+    int jumps = finger.jumps;
+    int ticks = finger.move(-160, 96);
+    REQUIRE(finger.jump_ends == 1);
+    REQUIRE(!scroller.jumping());
+    REQUIRE(finger.jumps == jumps);
+    REQUIRE(ticks > 0);
+  }
+
+  SECTION("stopping ends jump mode") {
+    scroller.setJumpAllowed(true);
+    finger.move(-512, 1024);
+    finger.rest(200'000);
+    REQUIRE(finger.jump_ends == 1);
+    REQUIRE(!scroller.jumping());
+  }
+
+  SECTION("lifting ends jump mode") {
+    scroller.setJumpAllowed(true);
+    finger.move(-512, 1024);
+    finger.lift();
+    REQUIRE(finger.jump_ends == 1);
+  }
+
+  SECTION("leaving a long list ends jump mode") {
+    scroller.setJumpAllowed(true);
+    finger.move(-512, 1024);
+    scroller.setJumpAllowed(false);
+    finger.sample();
+    REQUIRE(finger.jump_ends == 1);
+  }
 }
 
 }  // namespace input

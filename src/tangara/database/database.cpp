@@ -811,6 +811,140 @@ auto Database::countRecords(const SearchKey& c) -> size_t {
   return count;
 }
 
+// The group (see Iterator::jumpGroup) that a record's text belongs to: an
+// upper case ASCII letter, the first character for other scripts, or "" for
+// records starting with a digit or symbol.
+static auto groupOf(std::string_view text) -> std::string {
+  if (text.empty()) {
+    return "";
+  }
+  unsigned char c = text[0];
+  if (c < 0x80) {
+    if (std::isalpha(c)) {
+      return std::string(1, static_cast<char>(std::toupper(c)));
+    }
+    return "";
+  }
+  size_t len = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+  return std::string{text.substr(0, std::min(len, text.size()))};
+}
+
+// Text that sorts at or just after the start of the group following `group`,
+// if there's an obvious one.
+static auto groupAfter(const std::string& group)
+    -> std::optional<std::string> {
+  if (group.empty()) {
+    return "A";
+  }
+  if (group.size() == 1 && group[0] >= 'A' && group[0] < 'Z') {
+    return std::string(1, static_cast<char>(group[0] + 1));
+  }
+  return {};
+}
+
+// Limits how far jumpGroup() will step one record at a time, when seeking by
+// collated text didn't land somewhere sensible.
+static constexpr int kMaxGroupScan = 300;
+
+auto Database::jumpGroup(const std::pmr::string& prefix,
+                         std::string_view current_key,
+                         std::string_view current_text,
+                         int direction)
+    -> std::optional<std::pair<std::pmr::string, Record>> {
+  std::unique_ptr<leveldb::Iterator> it{
+      db_->NewIterator(leveldb::ReadOptions{})};
+
+  auto valid = [&]() {
+    return it->Valid() && it->key().starts_with(std::string_view{prefix});
+  };
+  auto group_here = [&]() {
+    return groupOf({it->value().data(), it->value().size()});
+  };
+  auto key_here = [&]() -> std::string_view {
+    return {it->key().data(), it->key().size()};
+  };
+  // Moves to the first record whose sort key is at or after `text`.
+  auto seek_text = [&](const std::string& text) {
+    if (text.empty()) {
+      it->Seek({prefix.data(), prefix.size()});
+      return;
+    }
+    std::string target{prefix.data(), prefix.size()};
+    target += collator_.Transform(text);
+    it->Seek(target);
+  };
+
+  std::string group = groupOf(current_text);
+
+  if (direction > 0) {
+    bool found = false;
+    if (auto after = groupAfter(group)) {
+      seek_text(*after);
+      found = valid() && key_here() > current_key && group_here() != group;
+    }
+    if (!found) {
+      // No obvious next letter (or the collation disagreed with us), so step
+      // forward until the group changes.
+      it->Seek({current_key.data(), current_key.size()});
+      for (int i = 0; i < kMaxGroupScan && valid(); i++) {
+        if (group_here() != group) {
+          found = true;
+          break;
+        }
+        it->Next();
+      }
+    }
+    if (!found) {
+      return {};
+    }
+  } else {
+    if (group.empty()) {
+      // Digits and symbols sort first; there's nothing before them.
+      return {};
+    }
+    // Find the start of the current group, then the record before it.
+    seek_text(group);
+    if (!valid() || key_here() > current_key) {
+      it->Seek({current_key.data(), current_key.size()});
+    }
+    it->Prev();
+    if (!valid()) {
+      return {};
+    }
+    // That record is the last of the previous group. Find its first record.
+    std::string prev_group = group_here();
+    std::string prev_key{key_here()};
+    seek_text(prev_group);
+    if (!valid() || key_here() > std::string_view{prev_key} ||
+        group_here() != prev_group) {
+      it->Seek(prev_key);
+      for (int i = 0; i < kMaxGroupScan; i++) {
+        it->Prev();
+        if (!valid() || group_here() != prev_group) {
+          break;
+        }
+      }
+      if (valid()) {
+        it->Next();
+      } else {
+        it->Seek({prefix.data(), prefix.size()});
+      }
+    }
+    if (!valid()) {
+      return {};
+    }
+  }
+
+  std::optional<IndexKey> key = ParseIndexKey(it->key());
+  if (!key) {
+    ESP_LOGW(kTag, "parsing index key failed");
+    return {};
+  }
+  return std::make_pair(std::pmr::string{it->key().data(), it->key().size(),
+                                         &memory::kSpiRamResource},
+                        Record{*key, it->value()});
+}
+
 Handle::Handle(std::shared_ptr<Database>& db) : db_(db) {}
 
 auto Handle::lock() -> std::shared_ptr<Database> {
@@ -850,7 +984,11 @@ Iterator::Iterator(std::shared_ptr<Database> db, IndexId idx)
                }) {}
 
 Iterator::Iterator(std::shared_ptr<Database> db, const IndexKey::Header& header)
-    : db_(db), key_{}, current_() {
+    : db_(db),
+      key_{},
+      current_(),
+      index_id_(header.id),
+      depth_(header.components_hash.size()) {
   std::string prefix = EncodeIndexPrefix(header);
   key_ = {
       .prefix = {prefix.data(), prefix.size(), &memory::kSpiRamResource},
@@ -873,15 +1011,61 @@ auto Iterator::next() -> void {
   iterate(new_key);
 }
 
-auto Iterator::skip(size_t n) -> void {
+auto Iterator::skip(int n) -> void {
   if (n == 0) {
     return;
   }
   SearchKey new_key = key_;
   // The first step is the same as next(); every further step moves one more
-  // record along from there.
-  new_key.offset = (new_key.offset == -1 ? 0 : 1) + static_cast<int>(n - 1);
+  // record along from there. This works the same way for negative n.
+  new_key.offset = (new_key.offset == -1 ? 0 : 1) + n - 1;
   iterate(new_key);
+}
+
+auto Iterator::jumpGroup(int direction) -> bool {
+  if (!current_ || !key_.key) {
+    return false;
+  }
+  auto db = db_.lock();
+  if (!db) {
+    ESP_LOGW(kTag, "jump with dead db");
+    return false;
+  }
+  auto res = db->jumpGroup(key_.prefix, *key_.key, current_->text(), direction);
+  if (!res) {
+    return false;
+  }
+  key_ = {
+      .prefix = key_.prefix,
+      .key = res->first,
+      .offset = 0,
+  };
+  current_ = res->second;
+  return true;
+}
+
+auto Iterator::sortedByText() const -> bool {
+  auto db = db_.lock();
+  if (!db) {
+    return false;
+  }
+  for (const auto& index : db->getIndexes()) {
+    if (index.id != index_id_) {
+      continue;
+    }
+    if (depth_ >= index.components.size()) {
+      return false;
+    }
+    switch (index.components[depth_]) {
+      case Tag::kAlbumOrder:
+      case Tag::kDisc:
+      case Tag::kTrack:
+        return false;
+      default:
+        return true;
+    }
+  }
+  return false;
 }
 
 auto Iterator::prev() -> void {

@@ -67,6 +67,11 @@ class TouchWheel : public IInputDevice {
   TriggerHooks right_;
   TriggerHooks down_;
   TriggerHooks left_;
+  // Jump mode, for long lists (see WheelScroller). These have no actions of
+  // their own; lists set their click hooks from Lua.
+  TriggerHooks jump_next_;
+  TriggerHooks jump_prev_;
+  TriggerHooks jump_end_;
 
   bool locked_;
   bool is_scrolling_;
