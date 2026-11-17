@@ -3,5 +3,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 idf_component_register(
-  SRC_DIRS "battery" "audio"
+  SRC_DIRS "battery" "audio" "input"
   INCLUDE_DIRS "." REQUIRES catch2 cmock tangara fixtures)

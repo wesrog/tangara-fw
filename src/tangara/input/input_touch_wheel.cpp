@@ -31,19 +31,20 @@ TouchWheel::TouchWheel(drivers::NvsStorage& nvs,
     : nvs_(nvs),
       wheel_(wheel),
       queue_(queue),
-      sensitivity_(static_cast<int>(nvs.ScrollSensitivity()),
-                   [&](const lua::LuaValue& val) {
-                     if (!std::holds_alternative<int>(val)) {
-                       return false;
-                     }
-                     int int_val = std::get<int>(val);
-                     if (int_val < 0 || int_val > UINT8_MAX) {
-                       return false;
-                     }
-                     nvs.ScrollSensitivity(int_val);
-                     threshold_ = calculateThreshold(int_val);
-                     return true;
-                   }),
+      sensitivity_(
+          static_cast<int>(nvs.ScrollSensitivity()),
+          [&](const lua::LuaValue& val) {
+            if (!std::holds_alternative<int>(val)) {
+              return false;
+            }
+            int int_val = std::get<int>(val);
+            if (int_val < 0 || int_val > UINT8_MAX) {
+              return false;
+            }
+            nvs.ScrollSensitivity(int_val);
+            scroller_.setStep(WheelScroller::stepForSensitivity(int_val));
+            return true;
+          }),
       centre_("centre", actions::select(), {}, actions::longPress(), {}),
       up_("up", {}, {}, actions::scrollToTop(), actions::scrollToTop()),
       right_("right", {}),
@@ -55,11 +56,12 @@ TouchWheel::TouchWheel(drivers::NvsStorage& nvs,
       left_("left", {}, {}, actions::goBack(), {}),
       locked_(false),
       is_scrolling_(false),
-      threshold_(calculateThreshold(nvs.ScrollSensitivity())),
-      is_first_read_(true),
-      last_angle_(0),
+      last_scroll_us_(0),
+      scroller_(),
       last_wheel_touch_time_(0),
-      buttons_active_(false) {}
+      buttons_active_(false) {
+  scroller_.setStep(WheelScroller::stepForSensitivity(nvs.ScrollSensitivity()));
+}
 
 auto TouchWheel::activate_buttons(bool activate) -> void {
   if (activate) {
@@ -76,14 +78,17 @@ auto TouchWheel::activate_buttons(bool activate) -> void {
   buttons_active_ = activate;
 }
 
-auto TouchWheel::read(lv_indev_data_t* data, std::vector<InputEvent>& events) -> void {
+auto TouchWheel::read(lv_indev_data_t* data,
+                      std::vector<InputEvent>& events) -> void {
   if (locked_) {
     return;
   }
 
   wheel_.Update();
   auto wheel_data = wheel_.GetTouchWheelData();
-  int8_t ticks = calculateTicks(wheel_data);
+  const int64_t now_us = esp_timer_get_time();
+  int ticks = scroller_.update(wheel_data.is_wheel_touched,
+                               wheel_data.wheel_position, now_us);
 
   if (!wheel_data.is_wheel_touched) {
     // User has released the wheel.
@@ -101,15 +106,16 @@ auto TouchWheel::read(lv_indev_data_t* data, std::vector<InputEvent>& events) ->
 
   // Prevent accidental center button touches while scrolling
   if (wheel_data.is_wheel_touched) {
-    last_wheel_touch_time_ = esp_timer_get_time();
+    last_wheel_touch_time_ = now_us;
   }
 
   bool wheel_touch_timed_out =
-      esp_timer_get_time() - last_wheel_touch_time_ > SCROLL_TIMEOUT_US;
+      now_us - last_wheel_touch_time_ > SCROLL_TIMEOUT_US;
 
-  auto centre_state = centre_.update(wheel_touch_timed_out && wheel_data.is_button_touched &&
-                     !wheel_data.is_wheel_touched,
-                 data);
+  auto centre_state =
+      centre_.update(wheel_touch_timed_out && wheel_data.is_button_touched &&
+                         !wheel_data.is_wheel_touched,
+                     data);
   if (centre_state == input::Trigger::State::kPress) {
     events.push_back(InputEvent::kOnPress);
   } else if (centre_state == input::Trigger::State::kLongPress) {
@@ -118,15 +124,14 @@ auto TouchWheel::read(lv_indev_data_t* data, std::vector<InputEvent>& events) ->
 
   // If the user is touching the wheel but not scrolling, then they may be
   // clicking on one of the wheel's cardinal directions.
-  const uint64_t now_us = esp_timer_get_time() / 1000;
   if (is_scrolling_) {
     up_.cancel();
     right_.cancel();
     down_.cancel();
     left_.cancel();
-    last_scroll_ = now_us;
+    last_scroll_us_ = now_us;
   } else {
-    const auto time_since_last_scroll = last_scroll_ - now_us;
+    const int64_t time_since_last_scroll = now_us - last_scroll_us_;
     bool pressing = wheel_data.is_wheel_touched &&
                     (time_since_last_scroll > SCROLL_TIMEOUT_US);
 
@@ -179,38 +184,6 @@ auto TouchWheel::onUnlock() -> void {
 
 auto TouchWheel::sensitivity() -> lua::Property& {
   return sensitivity_;
-}
-
-auto TouchWheel::calculateTicks(const drivers::TouchWheelData& data) -> int8_t {
-  if (!data.is_wheel_touched) {
-    is_first_read_ = true;
-    return 0;
-  }
-
-  uint8_t new_angle = data.wheel_position;
-  if (is_first_read_) {
-    is_first_read_ = false;
-    last_angle_ = new_angle;
-    return 0;
-  }
-
-  int delta = 128 - last_angle_;
-  uint8_t rotated_angle = new_angle + delta;
-  if (rotated_angle < 128 - threshold_) {
-    last_angle_ = new_angle;
-    return 1;
-  } else if (rotated_angle > 128 + threshold_) {
-    last_angle_ = new_angle;
-    return -1;
-  } else {
-    return 0;
-  }
-}
-
-auto TouchWheel::calculateThreshold(uint8_t sensitivity) -> uint8_t {
-  int tmax = 35;
-  int tmin = 5;
-  return (((255. - sensitivity) / 255.) * (tmax - tmin) + tmin);
 }
 
 }  // namespace input

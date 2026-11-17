@@ -17,6 +17,7 @@
 #include "input/input_device.hpp"
 #include "input/input_hook.hpp"
 #include "input/input_trigger.hpp"
+#include "input/wheel_scroller.hpp"
 #include "lua/property.hpp"
 
 namespace input {
@@ -25,7 +26,8 @@ class TouchWheel : public IInputDevice {
  public:
   TouchWheel(drivers::NvsStorage&, drivers::TouchWheel&, audio::TrackQueue&);
 
-  auto read(lv_indev_data_t* data, std::vector<InputEvent>& events) -> void override;
+  auto read(lv_indev_data_t* data,
+            std::vector<InputEvent>& events) -> void override;
 
   auto name() -> std::string override;
   auto triggers() -> std::vector<std::reference_wrapper<TriggerHooks>> override;
@@ -39,9 +41,6 @@ class TouchWheel : public IInputDevice {
 
  private:
   const int64_t SCROLL_TIMEOUT_US = 250000;  // 250ms
-
-  auto calculateTicks(const drivers::TouchWheelData& data) -> int8_t;
-  auto calculateThreshold(uint8_t sensitivity) -> uint8_t;
 
   drivers::NvsStorage& nvs_;
   drivers::TouchWheel& wheel_;
@@ -58,10 +57,8 @@ class TouchWheel : public IInputDevice {
 
   bool locked_;
   bool is_scrolling_;
-  uint64_t last_scroll_;
-  uint8_t threshold_;
-  bool is_first_read_;
-  uint8_t last_angle_;
+  int64_t last_scroll_us_;
+  WheelScroller scroller_;
   int64_t last_wheel_touch_time_;
   bool buttons_active_;
 };
