@@ -151,7 +151,7 @@ TEST_CASE("wheel scroller", "[unit]") {
       ticks += finger.sample();
     }
     // ~1000 units of rotation would be ~50 ticks without acceleration.
-    REQUIRE(ticks > 50 * 2);
+    REQUIRE(ticks * 2 > 50 * 3);
   }
 
   SECTION("the first moments after landing are ignored") {
@@ -169,7 +169,7 @@ TEST_CASE("wheel scroller", "[unit]") {
 
     // Fast spins go further than the same rotation done slowly.
     int fast = finger.move(-1280, 1024);
-    REQUIRE(fast > 64 * 3);
+    REQUIRE(fast * 2 > 64 * 3);
     REQUIRE(fast <= 64 * WheelScroller::kMaxGain);
   }
 

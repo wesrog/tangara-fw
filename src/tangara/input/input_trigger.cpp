@@ -31,7 +31,8 @@ auto Trigger::update(bool is_pressed) -> State {
   // This key wasn't being pressed, but now it is.
   if (is_pressed && !was_pressed_) {
     // Is this a double click?
-    if (now_ms - *touch_time_ms_ < kDoubleClickDelayMs) {
+    // (After cancel() there's no previous touch to compare against.)
+    if (touch_time_ms_ && now_ms - *touch_time_ms_ < kDoubleClickDelayMs) {
       // Don't update touch_time_ms_, since we don't want triple clicks to
       // register as double clicks.
       was_double_click_ = true;

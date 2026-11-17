@@ -48,7 +48,23 @@ TouchWheel::TouchWheel(drivers::NvsStorage& nvs,
       touch_down_pos_(0),
       touch_down_us_(0),
       last_raw_touch_us_(0),
-      moved_since_touch_(false) {}
+      touch_edge_(-1),
+      tap_ok_(false),
+      hold_ok_(false) {}
+
+// Wheel positions of the middle of each edge, in the same order as the
+// triggers in edgeTriggers(): up, left, down, right.
+static constexpr int16_t kEdgeAngles[] = {0, 64, 128, 192};
+
+// Returns the edge that `pos` is within `zone` units of, or -1 if none.
+static auto edgeAt(uint8_t pos, int zone) -> int {
+  for (int i = 0; i < 4; i++) {
+    if (drivers::TouchWheel::isAngleWithin(pos, kEdgeAngles[i], zone)) {
+      return i;
+    }
+  }
+  return -1;
+}
 
 auto TouchWheel::read(lv_indev_data_t* data,
                       std::vector<InputEvent>& events) -> void {
@@ -71,24 +87,46 @@ auto TouchWheel::read(lv_indev_data_t* data,
   int ticks = scroller_.update(wheel_data.is_wheel_touched,
                                wheel_data.wheel_position, now_us);
 
-  // Track how far the finger has travelled since it landed, so that a touch
-  // that wanders around the wheel is never mistaken for a tap.
-  if (wheel_data.is_wheel_touched && !was_touched_) {
+  const bool touched = wheel_data.is_wheel_touched;
+  const bool landed = touched && !was_touched_;
+  const bool released = !touched && was_touched_;
+
+  // Work out what this touch could still be: a tap on an edge, a hold on an
+  // edge, or neither. Taps are strict, so that scrolling never sets them off.
+  // Holds are forgiving, since a finger only stays put for that long on
+  // purpose.
+  if (landed) {
     touch_down_pos_ = wheel_data.wheel_position;
     touch_down_us_ = now_us;
+    touch_edge_ = edgeAt(wheel_data.wheel_position, kHoldZone);
+    hold_ok_ = touch_edge_ >= 0;
     // A touch that starts soon after a scroll is the next stroke of that
     // scroll, not a tap.
-    moved_since_touch_ = now_us - last_scroll_us_ < kTapAfterScrollUs;
-  } else if (wheel_data.is_wheel_touched) {
+    tap_ok_ = hold_ok_ && now_us - last_scroll_us_ >= kTapAfterScrollUs &&
+              drivers::TouchWheel::isAngleWithin(
+                  wheel_data.wheel_position, kEdgeAngles[touch_edge_],
+                  kTapZone);
+  } else if (touched) {
     int travel = static_cast<int8_t>(
         static_cast<uint8_t>(wheel_data.wheel_position - touch_down_pos_));
-    if (travel > kTapSlop || travel < -kTapSlop) {
-      moved_since_touch_ = true;
+    if (travel < 0) {
+      travel = -travel;
     }
-  } else if (was_touched_ && now_us - touch_down_us_ > kMaxTapUs) {
-    // Released after resting on the wheel for a while. That's not a tap
-    // either. (Holds that trigger a long-press action have already fired.)
-    moved_since_touch_ = true;
+    if (travel > kTapSlop) {
+      tap_ok_ = false;
+    }
+    if (travel > kHoldSlop) {
+      hold_ok_ = false;
+    }
+  }
+  if ((touched || released) && now_us - touch_down_us_ > kMaxTapUs) {
+    // Resting on the wheel for a while isn't a tap. (It may be a hold.)
+    tap_ok_ = false;
+  }
+  if (touched && ticks != 0) {
+    // Anything that scrolls is neither a tap nor a hold.
+    tap_ok_ = false;
+    hold_ok_ = false;
   }
   was_touched_ = wheel_data.is_wheel_touched;
 
@@ -124,58 +162,41 @@ auto TouchWheel::read(lv_indev_data_t* data,
     events.push_back(InputEvent::kOnLongPress);
   }
 
-  // If the user is touching the wheel but not scrolling, then they may be
-  // clicking on one of the wheel's cardinal directions.
-  if (is_scrolling_ || moved_since_touch_) {
-    up_.cancel();
-    right_.cancel();
-    down_.cancel();
-    left_.cancel();
-    if (is_scrolling_) {
-      last_scroll_us_ = now_us;
+  if (is_scrolling_) {
+    last_scroll_us_ = now_us;
+  }
+
+  // Edge taps and holds. Only the edge the touch landed on is ever pressed,
+  // so sliding into or out of an edge's zone doesn't start or end a press.
+  TriggerHooks* edges[] = {&up_, &left_, &down_, &right_};
+  for (int i = 0; i < 4; i++) {
+    TriggerHooks& edge = *edges[i];
+    if (i != touch_edge_) {
+      edge.cancel();
+      continue;
     }
-  } else {
-    const int64_t time_since_last_scroll = now_us - last_scroll_us_;
-    bool pressing = wheel_data.is_wheel_touched &&
-                    (time_since_last_scroll > SCROLL_TIMEOUT_US);
-
-    const auto ustate =
-        up_.update(pressing && drivers::TouchWheel::isAngleWithin(
-                                   wheel_data.wheel_position, 0, kTapZone),
-                   data);
-    const auto rstate =
-        right_.update(pressing && drivers::TouchWheel::isAngleWithin(
-                                      wheel_data.wheel_position, 192, kTapZone),
-                      data);
-    const auto dstate =
-        down_.update(pressing && drivers::TouchWheel::isAngleWithin(
-                                     wheel_data.wheel_position, 128, kTapZone),
-                     data);
-    const auto lstate =
-        left_.update(pressing && drivers::TouchWheel::isAngleWithin(
-                                     wheel_data.wheel_position, 64, kTapZone),
-                     data);
-
+    if ((touched && !tap_ok_ && !hold_ok_) || (released && !tap_ok_)) {
+      // This touch can't be a tap any more, so make sure letting go doesn't
+      // click. (If a hold already fired, letting go does nothing anyway.)
+      edge.cancel();
+    }
+    const auto state = edge.update(touched && (tap_ok_ || hold_ok_), data);
     // This is for haptic feedback.
-    if (ustate == Trigger::State::kClick || rstate == Trigger::State::kClick ||
-        dstate == Trigger::State::kClick || lstate == Trigger::State::kClick) {
+    if (state == Trigger::State::kClick) {
       events.push_back(InputEvent::kOnPress);
-    }
-    if (ustate == Trigger::State::kLongPress ||
-        rstate == Trigger::State::kLongPress ||
-        dstate == Trigger::State::kLongPress ||
-        lstate == Trigger::State::kLongPress) {
+    } else if (state == Trigger::State::kLongPress) {
       events.push_back(InputEvent::kOnLongPress);
+      // A hold only fires once per touch.
+      tap_ok_ = false;
     }
-
-    // Each tap stands alone. Without this, a second tap soon after the first
-    // is reported as a double-click, and its tap action is swallowed.
-    if (!wheel_data.is_wheel_touched) {
-      up_.cancel();
-      right_.cancel();
-      down_.cancel();
-      left_.cancel();
+    if (!touched) {
+      // Each tap stands alone. Without this, a second tap soon after the
+      // first is reported as a double-click, and its tap action is swallowed.
+      edge.cancel();
     }
+  }
+  if (!touched) {
+    touch_edge_ = -1;
   }
 }
 

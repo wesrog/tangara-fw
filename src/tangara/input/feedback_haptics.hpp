@@ -30,6 +30,7 @@ class Haptics : public IFeedbackDevice {
   drivers::Haptics& haptics_;
   std::shared_ptr<system_fsm::ServiceLocator> services_;
   lv_obj_t* last_selection_;
+  int64_t last_focus_haptic_us_;
 };
 
 }  // namespace input

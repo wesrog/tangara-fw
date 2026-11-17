@@ -42,13 +42,18 @@ class TouchWheel : public IInputDevice {
   // tapping one of the wheel's edges before the touch stops counting as a tap.
   static constexpr int kTapSlop = 4;
   // Taps must land this close (in wheel units) to the middle of an edge. This
-  // leaves dead zones between the edges, where a touch never triggers
-  // anything.
+  // leaves dead zones between the edges, where a tap never triggers anything.
   static constexpr int kTapZone = 24;
   // Touches longer than this aren't taps (this includes kReleaseGraceUs).
   static constexpr int64_t kMaxTapUs = 300'000;
   // Touches that start this soon after scrolling aren't taps.
   static constexpr int64_t kTapAfterScrollUs = 500'000;
+  // Holds are much harder to trigger by accident than taps (the finger has to
+  // stay put for the whole long-press delay), so they're more forgiving. A
+  // hold may land anywhere in an edge's quarter of the wheel, start straight
+  // after a scroll, and drift a little, as long as it doesn't scroll.
+  static constexpr int kHoldZone = 32;
+  static constexpr int kHoldSlop = 8;
   // Touch dropouts shorter than this are ignored.
   static constexpr int64_t kReleaseGraceUs = 60'000;
 
@@ -72,7 +77,11 @@ class TouchWheel : public IInputDevice {
   uint8_t touch_down_pos_;
   int64_t touch_down_us_;
   int64_t last_raw_touch_us_;
-  bool moved_since_touch_;
+  // Which edge (index into kEdgeAngles) the current touch landed on, or -1.
+  int touch_edge_;
+  // Whether the current touch can still become a tap, or a hold.
+  bool tap_ok_;
+  bool hold_ok_;
 };
 
 }  // namespace input
