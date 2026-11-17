@@ -78,6 +78,13 @@ GLOBAL_BINDINGS = {
         require("playing"):push_if_not_shown()
       end
     end
+    -- Holding the top of the click wheel (its 'menu' button) goes all the way
+    -- back to the main menu.
+    if hooks.wheel and hooks.wheel.up then
+      hooks.wheel.up.long_press = function()
+        backstack.reset(main_menu:new())
+      end
+    end
   end),
   sd_card.mounted:bind(function(mounted)
     backstack.reset(main_menu:new())

@@ -28,10 +28,6 @@ DeviceFactory::DeviceFactory(
   if (services->touchwheel()) {
     wheel_ = std::make_shared<TouchWheel>(
         services->nvs(), **services->touchwheel(), services->track_queue());
-    auto wheel_mode = services_->nvs().WheelInput();
-    if (wheel_mode == drivers::NvsStorage::WheelInputModes::kWheelWithButtons) {
-      wheel_->activate_buttons(true);
-    }
   }
   lua_input_ = std::make_shared<LuaInput>(
       lua::Registry::instance(*services_).uiThread());
@@ -82,14 +78,8 @@ auto DeviceFactory::createInputs()
       }
       break;
     case drivers::NvsStorage::WheelInputModes::kRotatingWheel:
-      if (wheel_) {
-        wheel_->activate_buttons(false);
-        ret.push_back(wheel_);
-      }
-      break;
     case drivers::NvsStorage::WheelInputModes::kWheelWithButtons:
       if (wheel_) {
-        wheel_->activate_buttons(true);
         ret.push_back(wheel_);
       }
       break;

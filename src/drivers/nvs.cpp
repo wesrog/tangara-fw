@@ -669,7 +669,8 @@ auto NvsStorage::WheelInput() -> WheelInputModes {
     case static_cast<uint8_t>(WheelInputModes::kRotatingWheel):
       return WheelInputModes::kRotatingWheel;
     case static_cast<uint8_t>(WheelInputModes::kWheelWithButtons):
-      return WheelInputModes::kWheelWithButtons;
+      // Merged into the click wheel scheme, which now always has buttons.
+      return WheelInputModes::kRotatingWheel;
     default:
       return WheelInputModes::kRotatingWheel;
   }

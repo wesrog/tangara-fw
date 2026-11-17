@@ -29,7 +29,9 @@ namespace input {
  */
 class WheelScroller {
  public:
-  // Rotation (in wheel units) per scroll tick when moving slowly.
+  // Rotation (in wheel units) per scroll tick when moving slowly. The default
+  // is about 28 degrees, or roughly 13 items per revolution.
+  static constexpr int kDefaultStep = 20;
   static constexpr int kMinStep = 5;
   static constexpr int kMaxStep = 35;
 
@@ -53,9 +55,6 @@ class WheelScroller {
   static constexpr int kMaxGain = 4;
 
   WheelScroller();
-
-  // Maps the user-facing 0-255 sensitivity setting onto a step size.
-  static auto stepForSensitivity(uint8_t sensitivity) -> int;
 
   auto setStep(int units) -> void;
   auto setAcceleration(bool enabled) -> void;

@@ -644,30 +644,6 @@ settings.InputSettings = SettingsScreen:new {
       buttons_chooser:focus()
     end
 
-    if controls.touchwheel_present() then
-      theme.set_subject(self.content:Label {
-        text = "Scroll Sensitivity",
-      }, "settings_title")
-
-      local slider_scale = 4; -- Power steering
-      local sensitivity = self.content:Slider {
-        w = lvgl.PCT(90),
-        range = { min = 0, max = 255 / slider_scale },
-        value = controls.scroll_sensitivity:get() / slider_scale,
-      }
-      sensitivity:onevent(lvgl.EVENT.VALUE_CHANGED, function()
-        controls.scroll_sensitivity:set(sensitivity:value() * slider_scale)
-      end)
-      local sensitivity_desc = widgets.Description(sensitivity, "Scroll Sensitivity")
-
-      local spacer = self.content:Object {
-        w = lvgl.PCT(90),
-        h = 10,
-      }
-      sensitivity:onevent(lvgl.EVENT.FOCUSED, function()
-        spacer:scroll_to_view(true)
-      end)
-    end
   end
 }
 

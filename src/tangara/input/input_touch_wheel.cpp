@@ -31,52 +31,34 @@ TouchWheel::TouchWheel(drivers::NvsStorage& nvs,
     : nvs_(nvs),
       wheel_(wheel),
       queue_(queue),
-      sensitivity_(
-          static_cast<int>(nvs.ScrollSensitivity()),
-          [&](const lua::LuaValue& val) {
-            if (!std::holds_alternative<int>(val)) {
-              return false;
-            }
-            int int_val = std::get<int>(val);
-            if (int_val < 0 || int_val > UINT8_MAX) {
-              return false;
-            }
-            nvs.ScrollSensitivity(int_val);
-            scroller_.setStep(WheelScroller::stepForSensitivity(int_val));
-            return true;
-          }),
       centre_("centre", actions::select(), {}, actions::longPress(), {}),
-      up_("up", {}, {}, actions::scrollToTop(), actions::scrollToTop()),
-      right_("right", {}),
+      // Laid out like a classic click wheel. Taps on the double-click hooks
+      // do the same as single taps, so that tapping quickly (e.g. going back
+      // several screens) never swallows a tap.
+      up_("up", actions::goBack(), actions::goBack(), {}, {}),
+      right_("right",
+             actions::nextTrack(queue),
+             actions::nextTrack(queue),
+             {},
+             {}),
       down_("down",
+            actions::togglePlayPause(),
+            actions::togglePlayPause(),
             {},
-            {},
-            actions::scrollToBottom(),
-            actions::scrollToBottom()),
-      left_("left", {}, {}, actions::goBack(), {}),
+            {}),
+      left_("left",
+            actions::prevTrack(queue),
+            actions::prevTrack(queue),
+            actions::goBack(),
+            {}),
       locked_(false),
       is_scrolling_(false),
       last_scroll_us_(0),
       scroller_(),
       last_wheel_touch_time_(0),
-      buttons_active_(false) {
-  scroller_.setStep(WheelScroller::stepForSensitivity(nvs.ScrollSensitivity()));
-}
-
-auto TouchWheel::activate_buttons(bool activate) -> void {
-  if (activate) {
-    up_.override(Trigger::State::kClick, {actions::skipBack()});
-    left_.override(Trigger::State::kClick, {actions::prevTrack(queue_)});
-    right_.override(Trigger::State::kClick, {actions::nextTrack(queue_)});
-    down_.override(Trigger::State::kClick, {actions::togglePlayPause()});
-  } else {
-    up_.override(Trigger::State::kClick, std::nullopt);
-    left_.override(Trigger::State::kClick, std::nullopt);
-    right_.override(Trigger::State::kClick, std::nullopt);
-    down_.override(Trigger::State::kClick, std::nullopt);
-  }
-  buttons_active_ = activate;
-}
+      was_touched_(false),
+      touch_down_pos_(0),
+      moved_since_touch_(false) {}
 
 auto TouchWheel::read(lv_indev_data_t* data,
                       std::vector<InputEvent>& events) -> void {
@@ -89,6 +71,20 @@ auto TouchWheel::read(lv_indev_data_t* data,
   const int64_t now_us = esp_timer_get_time();
   int ticks = scroller_.update(wheel_data.is_wheel_touched,
                                wheel_data.wheel_position, now_us);
+
+  // Track how far the finger has travelled since it landed, so that a touch
+  // that wanders around the wheel is never mistaken for a tap.
+  if (wheel_data.is_wheel_touched && !was_touched_) {
+    touch_down_pos_ = wheel_data.wheel_position;
+    moved_since_touch_ = false;
+  } else if (wheel_data.is_wheel_touched) {
+    int travel = static_cast<int8_t>(
+        static_cast<uint8_t>(wheel_data.wheel_position - touch_down_pos_));
+    if (travel > kTapSlop || travel < -kTapSlop) {
+      moved_since_touch_ = true;
+    }
+  }
+  was_touched_ = wheel_data.is_wheel_touched;
 
   if (!wheel_data.is_wheel_touched) {
     // User has released the wheel.
@@ -124,12 +120,14 @@ auto TouchWheel::read(lv_indev_data_t* data,
 
   // If the user is touching the wheel but not scrolling, then they may be
   // clicking on one of the wheel's cardinal directions.
-  if (is_scrolling_) {
+  if (is_scrolling_ || moved_since_touch_) {
     up_.cancel();
     right_.cancel();
     down_.cancel();
     left_.cancel();
-    last_scroll_us_ = now_us;
+    if (is_scrolling_) {
+      last_scroll_us_ = now_us;
+    }
   } else {
     const int64_t time_since_last_scroll = now_us - last_scroll_us_;
     bool pressing = wheel_data.is_wheel_touched &&
@@ -153,10 +151,10 @@ auto TouchWheel::read(lv_indev_data_t* data,
                      data);
 
     // This is for haptic feedback.
-    if (buttons_active_ &&
-        (ustate == Trigger::State::kClick || rstate == Trigger::State::kClick ||
-         dstate == Trigger::State::kClick ||
-         lstate == Trigger::State::kClick)) {
+    auto tapped = [](Trigger::State s) {
+      return s == Trigger::State::kClick || s == Trigger::State::kDoubleClick;
+    };
+    if (tapped(ustate) || tapped(rstate) || tapped(dstate) || tapped(lstate)) {
       events.push_back(InputEvent::kOnPress);
     }
   }
@@ -180,10 +178,6 @@ auto TouchWheel::onUnlock() -> void {
   wheel_.LowPowerMode(false);
   wheel_.Recalibrate();
   locked_ = false;
-}
-
-auto TouchWheel::sensitivity() -> lua::Property& {
-  return sensitivity_;
 }
 
 }  // namespace input

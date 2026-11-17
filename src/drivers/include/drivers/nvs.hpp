@@ -159,6 +159,7 @@ class NvsStorage {
     kDisabled = 0,
     kDirectionalWheel = 1,
     kRotatingWheel = 2,
+    // No longer offered; treated the same as kRotatingWheel.
     kWheelWithButtons = 3,
   };
 

@@ -35,19 +35,17 @@ class TouchWheel : public IInputDevice {
   auto onLock() -> void override;
   auto onUnlock() -> void override;
 
-  auto sensitivity() -> lua::Property&;
-
-  auto activate_buttons(bool activate) -> void;
-
  private:
   const int64_t SCROLL_TIMEOUT_US = 250000;  // 250ms
+
+  // How far (in wheel units, 256 per revolution) the finger may drift while
+  // tapping one of the wheel's edges before the touch stops counting as a tap.
+  static constexpr int kTapSlop = 12;
 
   drivers::NvsStorage& nvs_;
   drivers::TouchWheel& wheel_;
 
   audio::TrackQueue& queue_;
-
-  lua::Property sensitivity_;
 
   TriggerHooks centre_;
   TriggerHooks up_;
@@ -60,7 +58,9 @@ class TouchWheel : public IInputDevice {
   int64_t last_scroll_us_;
   WheelScroller scroller_;
   int64_t last_wheel_touch_time_;
-  bool buttons_active_;
+  bool was_touched_;
+  uint8_t touch_down_pos_;
+  bool moved_since_touch_;
 };
 
 }  // namespace input

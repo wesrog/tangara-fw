@@ -24,7 +24,7 @@ static auto wrappedDelta(uint8_t from, uint8_t to) -> int {
 }
 
 WheelScroller::WheelScroller()
-    : step_x16_(stepForSensitivity(128) * kSubUnits),
+    : step_x16_(kDefaultStep * kSubUnits),
       accel_(true),
       touching_(false),
       touch_start_us_(0),
@@ -33,12 +33,6 @@ WheelScroller::WheelScroller()
       accum_x16_(0),
       pending_reverse_(0),
       speed_(0) {}
-
-auto WheelScroller::stepForSensitivity(uint8_t sensitivity) -> int {
-  // Same mapping as the original implementation, so that existing
-  // sensitivity settings keep feeling the same during slow scrolling.
-  return ((255 - sensitivity) * (kMaxStep - kMinStep) + 127) / 255 + kMinStep;
-}
 
 auto WheelScroller::setStep(int units) -> void {
   step_x16_ = std::clamp(units, kMinStep, kMaxStep) * kSubUnits;

@@ -63,7 +63,7 @@ struct FakeFinger {
 
 TEST_CASE("wheel scroller", "[unit]") {
   WheelScroller scroller;
-  scroller.setStep(20);
+  scroller.setStep(WheelScroller::kDefaultStep);
   FakeFinger finger{scroller};
 
   SECTION("landing and resting never scroll") {
@@ -157,10 +157,13 @@ TEST_CASE("wheel scroller", "[unit]") {
   }
 }
 
-TEST_CASE("wheel scroller sensitivity mapping", "[unit]") {
-  REQUIRE(WheelScroller::stepForSensitivity(0) == WheelScroller::kMaxStep);
-  REQUIRE(WheelScroller::stepForSensitivity(255) == WheelScroller::kMinStep);
-  REQUIRE(WheelScroller::stepForSensitivity(128) == 20);
+TEST_CASE("wheel scroller default step", "[unit]") {
+  WheelScroller scroller;
+  FakeFinger finger{scroller};
+  scroller.setAcceleration(false);
+  finger.land();
+  finger.rest(100'000);
+  REQUIRE(finger.move(-WheelScroller::kDefaultStep, 128) == 1);
 }
 
 }  // namespace input

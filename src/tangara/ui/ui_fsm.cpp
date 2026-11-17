@@ -768,12 +768,6 @@ void Lua::entry() {
             {"hooks", [&](lua_State* L) { return sInput->pushHooks(L); }},
         });
 
-    if (sDeviceFactory->touch_wheel()) {
-      registry.AddPropertyModule(
-          "controls", {{"scroll_sensitivity",
-                        &sDeviceFactory->touch_wheel()->sensitivity()}});
-    }
-
     registry.AddPropertyModule(
         "playing_screen_settings",
         {
