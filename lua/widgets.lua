@@ -262,6 +262,21 @@ function widgets.IconBtn(parent, icon, text)
   return btn
 end
 
+-- Actions for playing a list item immediately (e.g. by holding the bottom of
+-- the click wheel), keyed by the item's button. Weak keys, so that deleted
+-- buttons don't leak.
+widgets.play_actions = setmetatable({}, { __mode = "k" })
+
+-- Plays the currently focused list item, if it supports being played.
+function widgets.play_focused()
+  local group = lvgl.group.get_default()
+  local focused = group and group:get_focused()
+  local action = focused and widgets.play_actions[focused]
+  if action then
+    action()
+  end
+end
+
 function widgets.InfiniteList(parent, iterator, opts)
   local infinite_list = {}
 
@@ -342,6 +357,9 @@ function widgets.InfiniteList(parent, iterator, opts)
     -- list) and return a function matching the arg of onClicked
     if opts.callback then
       btn:onClicked(opts.callback(item, this_item))
+    end
+    if opts.play_callback then
+      widgets.play_actions[btn] = opts.play_callback(item, this_item)
     end
     -- Scroll instantly rather than animating on every step. Animating each
     -- item while the wheel is spinning makes the list feel chunky, as each

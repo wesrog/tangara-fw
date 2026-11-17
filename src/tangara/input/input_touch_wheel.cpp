@@ -161,6 +161,12 @@ auto TouchWheel::read(lv_indev_data_t* data,
         dstate == Trigger::State::kClick || lstate == Trigger::State::kClick) {
       events.push_back(InputEvent::kOnPress);
     }
+    if (ustate == Trigger::State::kLongPress ||
+        rstate == Trigger::State::kLongPress ||
+        dstate == Trigger::State::kLongPress ||
+        lstate == Trigger::State::kLongPress) {
+      events.push_back(InputEvent::kOnLongPress);
+    }
 
     // Each tap stands alone. Without this, a second tap soon after the first
     // is reported as a double-click, and its tap action is swallowed.

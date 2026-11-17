@@ -119,6 +119,25 @@ return screen:new {
     end
 
     local list_iterator = self.iterator:clone()
+
+    -- Plays a track from this list, then carries on through the rest of the
+    -- list, like selecting a song in an album.
+    local play_track = function(contents, index)
+      queue.clear()
+      local track = database.track_by_id(contents)
+      if (track and longform_content) then
+        queue.play_from(track.filepath, track.saved_position)
+      else
+        local from_here = list_iterator:clone()
+        for _ = 1, index do
+          from_here:next()
+        end
+        queue.add(from_here)
+      end
+      playback.playing:set(true)
+      backstack.push(playing:new())
+    end
+
     widgets.InfiniteList(self.root, self.iterator, {
       focus_first_item = true,
       get_icon = get_icon_func,
@@ -133,21 +152,22 @@ return screen:new {
               breadcrumb = tostring(item)
             })
           else
+            play_track(contents, index)
+          end
+        end
+      end,
+      -- Holding the bottom of the click wheel plays the highlighted item
+      -- straight away. Albums, artists, etc. play all of their contents.
+      play_callback = function(item, index)
+        return function()
+          local contents = item:contents()
+          if type(contents) == "userdata" then
             queue.clear()
-            local track = database.track_by_id(contents)
-            if (track and longform_content) then
-              queue.play_from(track.filepath, track.saved_position)
-            else
-              -- Play from the selected track through to the end of the list,
-              -- like selecting a song in an album.
-              local from_here = list_iterator:clone()
-              for _ = 1, index do
-                from_here:next()
-              end
-              queue.add(from_here)
-            end
+            queue.add(contents)
             playback.playing:set(true)
             backstack.push(playing:new())
+          else
+            play_track(contents, index)
           end
         end
       end,

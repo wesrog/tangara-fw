@@ -85,6 +85,13 @@ GLOBAL_BINDINGS = {
         backstack.reset(main_menu:new())
       end
     end
+    -- Holding the bottom of the click wheel (its play/pause button) plays the
+    -- highlighted item in a list straight away.
+    if hooks.wheel and hooks.wheel.down then
+      hooks.wheel.down.long_press = function()
+        require("widgets").play_focused()
+      end
+    end
   end),
   sd_card.mounted:bind(function(mounted)
     backstack.reset(main_menu:new())
