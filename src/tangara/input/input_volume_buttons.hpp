@@ -33,6 +33,15 @@ class VolumeButtons : public IInputDevice {
  private:
   drivers::IGpios& gpios_;
 
+  // How many volume steps one repeat of a held button moves, based on how
+  // long it has been held.
+  static auto heldSteps(uint64_t held_since_us) -> uint_fast8_t;
+
+  uint64_t up_since_us_;
+  uint64_t down_since_us_;
+  bool up_was_pressed_;
+  bool down_was_pressed_;
+
   TriggerHooks up_;
   TriggerHooks down_;
 

@@ -54,6 +54,7 @@ class AudioState : public tinyfsm::Fsm<AudioState> {
   void react(const internal::StreamStarted&);
   void react(const internal::StreamEnded&);
   virtual void react(const internal::StreamHeartbeat&) {}
+  void react(const internal::WriteSettings&);
 
   void react(const StepUpVolume&);
   void react(const StepDownVolume&);
@@ -74,6 +75,9 @@ class AudioState : public tinyfsm::Fsm<AudioState> {
   auto updateOutputMode() -> void;
   auto emitPlaybackUpdate(bool paused) -> void;
   auto commitVolume() -> void;
+  // Writes settings to flash shortly after the last change, so that a burst
+  // of changes (such as holding a volume button) costs one flash write.
+  auto scheduleSettingsWrite() -> void;
 
   auto updateSavedPosition(std::string uri, uint32_t position) -> void;
   auto incrementPlayCount(std::string uri) -> void;

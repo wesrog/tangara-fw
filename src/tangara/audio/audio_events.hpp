@@ -110,8 +110,14 @@ struct QueueUpdate : tinyfsm::Event {
   std::optional<uint32_t> seek_to_second;
 };
 
-struct StepUpVolume : tinyfsm::Event {};
-struct StepDownVolume : tinyfsm::Event {};
+// `steps` is how many of the output's smallest volume steps to move by. Held
+// volume buttons send larger steps the longer they are held.
+struct StepUpVolume : tinyfsm::Event {
+  uint_fast8_t steps = 1;
+};
+struct StepDownVolume : tinyfsm::Event {
+  uint_fast8_t steps = 1;
+};
 struct SetVolume : tinyfsm::Event {
   std::optional<uint_fast8_t> percent;
   std::optional<int32_t> db;
@@ -182,6 +188,11 @@ struct StreamEnded : tinyfsm::Event {
 };
 
 struct StreamHeartbeat : tinyfsm::Event {};
+
+// Sent by the settings write timer, so that the flash write happens on the
+// audio task (which has an internal-RAM stack) rather than on the timer task
+// or a worker whose stack is in PSRAM.
+struct WriteSettings : tinyfsm::Event {};
 
 }  // namespace internal
 
