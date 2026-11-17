@@ -29,6 +29,7 @@ WheelScroller::WheelScroller()
       touching_(false),
       touch_start_us_(0),
       last_sample_us_(0),
+      last_move_us_(0),
       last_pos_(0),
       accum_x16_(0),
       pending_reverse_(0),
@@ -68,6 +69,7 @@ auto WheelScroller::update(bool touched,
     touching_ = true;
     touch_start_us_ = now_us;
     last_sample_us_ = now_us;
+    last_move_us_ = now_us;
     last_pos_ = position;
     accum_x16_ = 0;
     pending_reverse_ = 0;
@@ -87,23 +89,33 @@ auto WheelScroller::update(bool touched,
     return 0;
   }
 
-  if (std::abs(movement) > kMaxJump) {
+  // If the UI was busy (e.g. loading list items) then samples arrive late,
+  // and a fast-moving finger can legitimately travel a long way between them.
+  // Only treat big jumps as glitches when the samples were close together.
+  int max_jump = dt_us > kSlowSampleUs ? kMaxJumpSlowSample : kMaxJump;
+  if (std::abs(movement) > max_jump) {
     // Implausible jump. Re-anchor at the new position and carry on.
     speed_ = 0;
     pending_reverse_ = 0;
     return 0;
   }
 
-  if (dt_us > 0) {
-    int instant = static_cast<int>(
-        std::min<uint64_t>(std::abs(movement) * 1'000'000ull / dt_us, 4096));
-    // Exponential moving average; smooths out samples where the controller
-    // hadn't reported a new position yet.
-    speed_ = (speed_ * 3 + instant) / 4;
+  if (movement == 0) {
+    // The touch controller doesn't report a new position on every sample, so
+    // a single still sample doesn't mean the finger has stopped.
+    if (now_us - last_move_us_ > kStillUs) {
+      speed_ = 0;
+    }
+    return 0;
   }
 
-  if (movement == 0) {
-    return 0;
+  // Measure speed between samples that actually moved.
+  uint64_t move_dt_us = std::min<uint64_t>(now_us - last_move_us_, kStillUs);
+  last_move_us_ = now_us;
+  if (move_dt_us > 0) {
+    int instant = static_cast<int>(std::min<uint64_t>(
+        std::abs(movement) * 1'000'000ull / move_dt_us, 4096));
+    speed_ = (speed_ + instant) / 2;
   }
 
   int direction = sign(accum_x16_);

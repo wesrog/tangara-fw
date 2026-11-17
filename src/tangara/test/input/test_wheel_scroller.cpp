@@ -126,6 +126,32 @@ TEST_CASE("wheel scroller", "[unit]") {
     REQUIRE(finger.rest(500'000) == 0);
   }
 
+  SECTION("movement during a busy UI isn't dropped") {
+    scroller.setAcceleration(false);
+    finger.land();
+    finger.rest(100'000);
+    // One 150ms gap between samples, during which the finger moved 100 units.
+    finger.now_us += 117'000;
+    finger.pos -= 100;
+    REQUIRE(finger.sample() == 5);
+  }
+
+  SECTION("the controller skipping samples doesn't stop acceleration") {
+    finger.land();
+    finger.rest(100'000);
+    // 2 revolutions per second, but the controller only reports a new
+    // position on every other sample.
+    int ticks = 0;
+    for (int i = 0; i < 60; i++) {
+      if (i % 2 == 0) {
+        finger.pos -= 2 * 512.0 * kSampleUs / 1e6;
+      }
+      ticks += finger.sample();
+    }
+    // ~1000 units of rotation would be ~50 ticks without acceleration.
+    REQUIRE(ticks > 50 * 2);
+  }
+
   SECTION("the first moments after landing are ignored") {
     finger.land();
     finger.pos -= 25;

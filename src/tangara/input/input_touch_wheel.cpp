@@ -32,25 +32,13 @@ TouchWheel::TouchWheel(drivers::NvsStorage& nvs,
       wheel_(wheel),
       queue_(queue),
       centre_("centre", actions::select(), {}, actions::longPress(), {}),
-      // Laid out like a classic click wheel. Taps on the double-click hooks
-      // do the same as single taps, so that tapping quickly (e.g. going back
-      // several screens) never swallows a tap.
-      up_("up", actions::goBack(), actions::goBack(), {}, {}),
-      right_("right",
-             actions::nextTrack(queue),
-             actions::nextTrack(queue),
-             {},
-             {}),
-      down_("down",
-            actions::togglePlayPause(),
-            actions::togglePlayPause(),
-            {},
-            {}),
-      left_("left",
-            actions::prevTrack(queue),
-            actions::prevTrack(queue),
-            actions::goBack(),
-            {}),
+      // Laid out like a classic click wheel. There are deliberately no
+      // double-click actions: those fire as soon as the finger lands, which
+      // happens constantly when scrolling with repeated thumb strokes.
+      up_("up", actions::goBack(), {}, {}, {}),
+      right_("right", actions::nextTrack(queue), {}, {}, {}),
+      down_("down", actions::togglePlayPause(), {}, {}, {}),
+      left_("left", actions::prevTrack(queue), {}, actions::goBack(), {}),
       locked_(false),
       is_scrolling_(false),
       last_scroll_us_(0),
@@ -58,6 +46,7 @@ TouchWheel::TouchWheel(drivers::NvsStorage& nvs,
       last_wheel_touch_time_(0),
       was_touched_(false),
       touch_down_pos_(0),
+      touch_down_us_(0),
       moved_since_touch_(false) {}
 
 auto TouchWheel::read(lv_indev_data_t* data,
@@ -76,13 +65,20 @@ auto TouchWheel::read(lv_indev_data_t* data,
   // that wanders around the wheel is never mistaken for a tap.
   if (wheel_data.is_wheel_touched && !was_touched_) {
     touch_down_pos_ = wheel_data.wheel_position;
-    moved_since_touch_ = false;
+    touch_down_us_ = now_us;
+    // A touch that starts soon after a scroll is the next stroke of that
+    // scroll, not a tap.
+    moved_since_touch_ = now_us - last_scroll_us_ < kTapAfterScrollUs;
   } else if (wheel_data.is_wheel_touched) {
     int travel = static_cast<int8_t>(
         static_cast<uint8_t>(wheel_data.wheel_position - touch_down_pos_));
     if (travel > kTapSlop || travel < -kTapSlop) {
       moved_since_touch_ = true;
     }
+  } else if (was_touched_ && now_us - touch_down_us_ > kMaxTapUs) {
+    // Released after resting on the wheel for a while. That's not a tap
+    // either. (Holds that trigger a long-press action have already fired.)
+    moved_since_touch_ = true;
   }
   was_touched_ = wheel_data.is_wheel_touched;
 
@@ -151,11 +147,18 @@ auto TouchWheel::read(lv_indev_data_t* data,
                      data);
 
     // This is for haptic feedback.
-    auto tapped = [](Trigger::State s) {
-      return s == Trigger::State::kClick || s == Trigger::State::kDoubleClick;
-    };
-    if (tapped(ustate) || tapped(rstate) || tapped(dstate) || tapped(lstate)) {
+    if (ustate == Trigger::State::kClick || rstate == Trigger::State::kClick ||
+        dstate == Trigger::State::kClick || lstate == Trigger::State::kClick) {
       events.push_back(InputEvent::kOnPress);
+    }
+
+    // Each tap stands alone. Without this, a second tap soon after the first
+    // is reported as a double-click, and its tap action is swallowed.
+    if (!wheel_data.is_wheel_touched) {
+      up_.cancel();
+      right_.cancel();
+      down_.cancel();
+      left_.cancel();
     }
   }
 }

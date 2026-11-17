@@ -39,6 +39,13 @@ class WheelScroller {
   // finger movement. It's either a sensor glitch, or the finger has lifted
   // and landed somewhere else between samples.
   static constexpr int kMaxJump = 64;
+  // When samples arrive late because the UI was busy, allow larger jumps (up
+  // to just under half a revolution, beyond which direction is ambiguous).
+  static constexpr uint64_t kSlowSampleUs = 50'000;
+  static constexpr int kMaxJumpSlowSample = 112;
+
+  // How long the finger must be still before we consider it stopped.
+  static constexpr uint64_t kStillUs = 100'000;
 
   // How much the finger may wobble backwards before we treat it as a
   // deliberate change of direction.
@@ -50,8 +57,8 @@ class WheelScroller {
   // Acceleration curve. Below kAccelStartSpeed (units per second) there is
   // no acceleration. Gain then ramps linearly up to kMaxGain at
   // kAccelFullSpeed. For reference, 256 units/s is one revolution per second.
-  static constexpr int kAccelStartSpeed = 320;
-  static constexpr int kAccelFullSpeed = 768;
+  static constexpr int kAccelStartSpeed = 256;
+  static constexpr int kAccelFullSpeed = 640;
   static constexpr int kMaxGain = 4;
 
   WheelScroller();
@@ -75,6 +82,7 @@ class WheelScroller {
   bool touching_;
   uint64_t touch_start_us_;
   uint64_t last_sample_us_;
+  uint64_t last_move_us_;
   uint8_t last_pos_;
 
   // Accumulated, gain-adjusted movement in 1/16ths of a unit.

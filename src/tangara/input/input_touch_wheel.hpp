@@ -40,7 +40,11 @@ class TouchWheel : public IInputDevice {
 
   // How far (in wheel units, 256 per revolution) the finger may drift while
   // tapping one of the wheel's edges before the touch stops counting as a tap.
-  static constexpr int kTapSlop = 12;
+  static constexpr int kTapSlop = 8;
+  // Touches longer than this aren't taps.
+  static constexpr int64_t kMaxTapUs = 300'000;
+  // Touches that start this soon after scrolling aren't taps.
+  static constexpr int64_t kTapAfterScrollUs = 500'000;
 
   drivers::NvsStorage& nvs_;
   drivers::TouchWheel& wheel_;
@@ -60,6 +64,7 @@ class TouchWheel : public IInputDevice {
   int64_t last_wheel_touch_time_;
   bool was_touched_;
   uint8_t touch_down_pos_;
+  int64_t touch_down_us_;
   bool moved_since_touch_;
 };
 
