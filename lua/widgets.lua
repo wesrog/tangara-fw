@@ -348,8 +348,52 @@ function widgets.InfiniteList(parent, iterator, opts)
     refreshing = false
   end
 
-  local fwd_iterator = iterator:clone()
-  local bck_iterator = iterator:clone()
+  -- Records are read from the database in batches and kept in a small window
+  -- of batches around what's on screen, so that scrolling rarely touches the
+  -- database. Each batch remembers an iterator positioned just before it, so
+  -- batches that fell out of the window can be read again cheaply.
+  local kBatchSize = 20
+  local kBatchesKept = 4
+  local anchors = { [0] = iterator:clone() }
+  local batches = {}
+  local last_batch = nil -- Index of the final batch, once we've seen it.
+
+  local function load_batch(k)
+    if batches[k] then return batches[k] end
+    if last_batch and k > last_batch then return nil end
+    local anchor = anchors[k]
+    if not anchor then return nil end
+    local it = anchor:clone()
+    local records = it:next_batch(kBatchSize)
+    batches[k] = records
+    if #records == kBatchSize then
+      anchors[k + 1] = anchors[k + 1] or it
+    else
+      last_batch = k
+    end
+    for other in pairs(batches) do
+      if math.abs(other - k) > kBatchesKept then
+        batches[other] = nil
+      end
+    end
+    return records
+  end
+
+  local function get_item(index)
+    if index < 0 then return nil end
+    local k = index // kBatchSize
+    -- Batches can only be found in order, since each one's starting point is
+    -- the end of the one before.
+    local first_missing = k
+    while first_missing > 0 and not anchors[first_missing] do
+      first_missing = first_missing - 1
+    end
+    for j = first_missing, k do
+      if not load_batch(j) then return nil end
+    end
+    local records = load_batch(k)
+    return records and records[index - k * kBatchSize + 1]
+  end
 
   local last_selected = 0
   local last_index = 0
@@ -359,14 +403,12 @@ function widgets.InfiniteList(parent, iterator, opts)
     local obj = infinite_list.root:get_child(0)
     obj:delete()
     first_index = first_index + 1
-    bck_iterator:next()
   end
 
   local function remove_last()
     local obj = infinite_list.root:get_child(-1)
     obj:delete()
     last_index = last_index - 1
-    fwd_iterator:prev()
   end
 
   local function add_item(item, index, item_opts)
@@ -409,7 +451,7 @@ function widgets.InfiniteList(parent, iterator, opts)
       if refreshing then return end
       if this_item > last_selected and this_item - first_index > 3 then
         -- moving forward
-        local to_add = fwd_iterator:next()
+        local to_add = get_item(last_index + 1)
         if to_add then
           remove_top()
           add_item(to_add, last_index + 1)
@@ -418,9 +460,8 @@ function widgets.InfiniteList(parent, iterator, opts)
       if this_item < last_selected then
         -- moving backward
         if (first_index > 0 and last_index - this_item > 3) then
-          local to_add = bck_iterator:value();
+          local to_add = get_item(first_index - 1)
           if to_add then
-            bck_iterator:prev()
             remove_last()
             add_item(to_add, first_index - 1)
             refresh_group()
@@ -437,7 +478,7 @@ function widgets.InfiniteList(parent, iterator, opts)
   end
 
   for idx = 0, 8 do
-    local val = fwd_iterator:next()
+    local val = get_item(idx)
     if not val then
       break
     end

@@ -792,6 +792,33 @@ auto Database::getRecord(const SearchKey& c)
                         Record{*key, it->value()});
 }
 
+auto Database::getRecords(const SearchKey& c, size_t n)
+    -> std::vector<std::pair<std::pmr::string, Record>> {
+  std::vector<std::pair<std::pmr::string, Record>> out;
+  if (n == 0) {
+    return out;
+  }
+  std::unique_ptr<leveldb::Iterator> it{
+      db_->NewIterator(leveldb::ReadOptions{})};
+
+  it->Seek(c.startKey());
+  seekToOffset(it.get(), c.offset);
+  out.reserve(n);
+  while (out.size() < n && it->Valid() &&
+         it->key().starts_with(std::string_view{c.prefix})) {
+    std::optional<IndexKey> key = ParseIndexKey(it->key());
+    if (!key) {
+      ESP_LOGW(kTag, "parsing index key failed");
+      break;
+    }
+    out.emplace_back(std::pmr::string{it->key().data(), it->key().size(),
+                                      &memory::kSpiRamResource},
+                     Record{*key, it->value()});
+    it->Next();
+  }
+  return out;
+}
+
 auto Database::countRecords(const SearchKey& c) -> size_t {
   std::unique_ptr<leveldb::Iterator> it{
       db_->NewIterator(leveldb::ReadOptions{})};
@@ -882,6 +909,38 @@ auto Iterator::skip(size_t n) -> void {
   // record along from there.
   new_key.offset = (new_key.offset == -1 ? 0 : 1) + static_cast<int>(n - 1);
   iterate(new_key);
+}
+
+auto Iterator::nextBatch(size_t n) -> std::vector<Record> {
+  std::vector<Record> out;
+  if (n == 0) {
+    return out;
+  }
+  auto db = db_.lock();
+  if (!db) {
+    ESP_LOGW(kTag, "iterate with dead db");
+    return out;
+  }
+  SearchKey new_key = key_;
+  new_key.offset = (new_key.offset == -1) ? 0 : 1;
+  auto res = db->getRecords(new_key, n);
+  if (res.empty()) {
+    // Same state as a next() that ran off the end.
+    key_ = new_key;
+    current_.reset();
+    return out;
+  }
+  out.reserve(res.size());
+  for (auto& r : res) {
+    out.push_back(r.second);
+  }
+  key_ = {
+      .prefix = key_.prefix,
+      .key = res.back().first,
+      .offset = 0,
+  };
+  current_ = res.back().second;
+  return out;
 }
 
 auto Iterator::prev() -> void {

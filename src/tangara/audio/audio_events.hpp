@@ -194,6 +194,10 @@ struct StreamHeartbeat : tinyfsm::Event {};
 // or a worker whose stack is in PSRAM.
 struct WriteSettings : tinyfsm::Event {};
 
+// Sent a little while after a track starts, to read the next track's tags
+// ahead of time so that skipping to it is quicker.
+struct PrefetchNextTrack : tinyfsm::Event {};
+
 }  // namespace internal
 
 }  // namespace audio

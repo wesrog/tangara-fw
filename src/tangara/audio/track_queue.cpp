@@ -240,8 +240,35 @@ auto TrackQueue::append(Item i) -> void {
   }
 }
 
-auto TrackQueue::appendAsync(database::TrackIterator it, bool was_empty)
-    -> void {
+auto TrackQueue::peekNext() -> std::optional<std::string> {
+  const std::shared_lock<std::shared_mutex> lock(mutex_);
+  if (!ready_ || shuffle_ || repeatMode_ == RepeatMode::REPEAT_TRACK) {
+    return {};
+  }
+  if (position_ + 1 >= totalSize()) {
+    return {};
+  }
+  if (opened_playlist_) {
+    if (position_ + 1 < opened_playlist_->size()) {
+      return opened_playlist_->peekNext();
+    }
+    return {};
+  }
+  return playlist_.peekNext();
+}
+
+auto TrackQueue::appendStartingWithFirst(database::TrackIterator it) -> void {
+  bool was_queue_empty;
+  {
+    const std::shared_lock<std::shared_mutex> lock(mutex_);
+    was_queue_empty = currentPosition() >= totalSize();
+  }
+  appendAsync(it, was_queue_empty, true);
+}
+
+auto TrackQueue::appendAsync(database::TrackIterator it,
+                             bool was_empty,
+                             bool start_with_first) -> void {
   // First, check whether or not an async append is already running. Grab the
   // mutex first to avoid races where we check appending_async_ between the bg
   // task looking at pending_async_iterators_ and resetting appending_async_.
@@ -270,7 +297,8 @@ auto TrackQueue::appendAsync(database::TrackIterator it, bool was_empty)
     // When not shuffling, hand the first track to the player as soon as we
     // have it, instead of waiting for a batch to load. Shuffling waits for a
     // bigger pool to pick a random first track from.
-    size_t next_update_at = (update_current && !shuffle_) ? 1 : 10;
+    bool first_now = !shuffle_ || start_with_first;
+    size_t next_update_at = (update_current && first_now) ? 1 : 10;
 
     // Paths are collected here and written to the queue file in batches, since
     // each write to the SD card is slow.
@@ -342,7 +370,7 @@ auto TrackQueue::appendAsync(database::TrackIterator it, bool was_empty)
         notifyChanged(false, Reason::kBulkLoadingUpdate);
 
         if (update_current) {
-          if (shuffle_ && playlist_.size() >= 100) {
+          if (!first_now && playlist_.size() >= 100) {
             // Special case for shuffling a large amount of tracks. Because
             // shuffling many tracks can be slow to wait for them all to load,
             // we wait for 100 or so to load, then start initially with a random
@@ -351,7 +379,7 @@ auto TrackQueue::appendAsync(database::TrackIterator it, bool was_empty)
             ready_ = true;
             notifyChanged(true, Reason::kExplicitUpdate);
             update_current = false;
-          } else if (!shuffle_ && playlist_.size() > 0) {
+          } else if (first_now && playlist_.size() > 0) {
             // If the queue was empty, then we want to start playing the first
             // track without waiting for the entire queue to finish loading
             ESP_LOGI("perf",

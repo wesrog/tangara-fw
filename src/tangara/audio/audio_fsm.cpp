@@ -61,6 +61,7 @@ static const char kCurrentFileKey[] = "audio:current";
 // device went idle, so turning it off or resetting it lost the change.
 static const TickType_t kSettingsWriteDelay = pdMS_TO_TICKS(2000);
 static TimerHandle_t sSettingsWriteTimer = nullptr;
+static auto schedulePrefetch() -> void;
 
 std::shared_ptr<system_fsm::ServiceLocator> AudioState::sServices;
 
@@ -225,6 +226,10 @@ void AudioState::react(const SetTrack& ev) {
     // if the new track has an issue.
     perf::milestone("audio: stream opened, handing to decoder");
     sDecoder->open(stream);
+
+    if (stream) {
+      schedulePrefetch();
+    }
 
     // ...but if the stream that failed is the front of the queue, then we
     // should advance to the next track in order to keep the tunes flowing.
@@ -540,6 +545,40 @@ auto AudioState::commitVolume() -> void {
     sServices->nvs().BluetoothVolume(dev->mac, vol);
   }
   scheduleSettingsWrite();
+}
+
+// How long after a track starts to wait before reading the next track's tags.
+// Waiting keeps the SD card free while the new track's buffer fills, and
+// means rapid skipping doesn't trigger a read for every track passed over.
+static constexpr TickType_t kPrefetchDelay = pdMS_TO_TICKS(1500);
+static TimerHandle_t sPrefetchTimer = nullptr;
+
+static void prefetch_cb(TimerHandle_t) {
+  events::Audio().Dispatch(internal::PrefetchNextTrack{});
+}
+
+static auto schedulePrefetch() -> void {
+  if (!sPrefetchTimer) {
+    sPrefetchTimer =
+        xTimerCreate("prefetch", kPrefetchDelay, false, NULL, prefetch_cb);
+    if (!sPrefetchTimer) {
+      return;
+    }
+  }
+  xTimerReset(sPrefetchTimer, 0);
+}
+
+void AudioState::react(const internal::PrefetchNextTrack&) {
+  sServices->bg_worker().Dispatch<void>([]() {
+    auto next = sServices->track_queue().peekNext();
+    if (!next) {
+      return;
+    }
+    perf::Scope scope{"prefetch next track tags"};
+    // The tag parser caches its results, so the stream factory will find
+    // them there when this track is played.
+    sServices->tag_parser().ReadAndParseTags(*next);
+  });
 }
 
 static void settings_write_cb(TimerHandle_t) {

@@ -101,6 +101,29 @@ auto Playlist::prev() -> void {
   }
 }
 
+auto Playlist::peekNext() -> std::optional<std::string> {
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (!file_open_ || file_error_ || pos_ + 1 >= total_size_) {
+    return {};
+  }
+  auto offset = f_tell(&file_);
+  TCHAR buff[512];
+  std::optional<std::string> res;
+  if (pos_ < 0) {
+    // Nothing has been read yet (the current value came from an append), so
+    // the file is still positioned before the current entry.
+    nextItem(buff);
+  }
+  auto item = nextItem(buff);
+  if (item) {
+    res = std::string{*item};
+  }
+  if (f_lseek(&file_, offset) != FR_OK) {
+    file_error_ = true;
+  }
+  return res;
+}
+
 auto Playlist::skipTo(size_t position) -> void {
   std::unique_lock<std::mutex> lock(mutex_);
   skipToLocked(position);

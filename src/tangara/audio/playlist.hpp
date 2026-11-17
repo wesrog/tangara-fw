@@ -46,6 +46,9 @@ class Playlist {
   auto prev() -> void;
   auto skipTo(size_t position) -> void;
 
+  /* The entry after the current one, without moving to it. */
+  auto peekNext() -> std::optional<std::string>;
+
   auto writeToFile(const std::string& filepath) -> bool;
 
   auto serialiseCache() -> bool;

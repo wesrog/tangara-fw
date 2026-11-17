@@ -42,6 +42,8 @@ UiTask::~UiTask() {
 IRAM_ATTR
 auto UiTask::Main() -> void {
   ESP_LOGI(kTag, "start ui task");
+  // Temporary: show timing logs without needing `loglevel perf INFO`.
+  esp_log_level_set("perf", ESP_LOG_INFO);
   lv_group_t* current_group = nullptr;
   auto* events = events::queues::Ui();
   while (true) {

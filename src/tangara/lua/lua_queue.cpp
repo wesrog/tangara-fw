@@ -56,13 +56,19 @@ static auto queue_add(lua_State* state) -> int {
     database::Iterator it = *db_check_iterator(state, 1);
     // Optionally skip the first n records. This is done off the UI task, and
     // with a single seek rather than one per record.
+    bool has_skip = lua_isinteger(state, 2);
     lua_Integer skip = luaL_optinteger(state, 2, 0);
     instance->services().bg_worker().Dispatch<void>([=]() mutable {
+      audio::TrackQueue& queue = instance->services().track_queue();
       if (skip > 0) {
         it.skip(skip);
       }
-      audio::TrackQueue& queue = instance->services().track_queue();
-      queue.append(database::TrackIterator{it});
+      if (has_skip) {
+        // The user picked this track, so play it first even when shuffling.
+        queue.appendStartingWithFirst(database::TrackIterator{it});
+      } else {
+        queue.append(database::TrackIterator{it});
+      }
     });
   }
 

@@ -164,6 +164,10 @@ class Database {
   auto getRecord(const SearchKey& c)
       -> std::optional<std::pair<std::pmr::string, Record>>;
   auto countRecords(const SearchKey& c) -> size_t;
+  // Like getRecord, but also returns up to `n - 1` records following it,
+  // using a single database iterator.
+  auto getRecords(const SearchKey& c, size_t n)
+      -> std::vector<std::pair<std::pmr::string, Record>>;
 };
 
 class Handle {
@@ -242,6 +246,13 @@ class Iterator {
    * a single database seek instead of one per record.
    */
   auto skip(size_t n) -> void;
+
+  /*
+   * Returns the next `n` records (fewer at the end of the index), as if
+   * next() was called `n` times, but with a single database seek. The
+   * iterator is left on the last record returned.
+   */
+  auto nextBatch(size_t n) -> std::vector<Record>;
 
   std::optional<Record> operator--() {
     prev();

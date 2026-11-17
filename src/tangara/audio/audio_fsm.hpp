@@ -55,6 +55,7 @@ class AudioState : public tinyfsm::Fsm<AudioState> {
   void react(const internal::StreamEnded&);
   virtual void react(const internal::StreamHeartbeat&) {}
   void react(const internal::WriteSettings&);
+  void react(const internal::PrefetchNextTrack&);
 
   void react(const StepUpVolume&);
   void react(const StepDownVolume&);
