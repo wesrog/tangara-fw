@@ -13,8 +13,13 @@ local theme = require("theme")
 local screen = require("screen")
 local images = require("images")
 
+local spinner_frames = {}
+for i = 0, 11 do
+  spinner_frames[#spinner_frames + 1] =
+      lvgl.ImgData("//lua/img/spinner/" .. i .. ".png")
+end
+
 local img = {
-  db = lvgl.ImgData("//lua/img/db.png"),
   chg = lvgl.ImgData("//lua/img/bat/chg.png"),
   chg_outline = lvgl.ImgData("//lua/img/bat/chg_outline.png"),
   bat_100 = lvgl.ImgData("//lua/img/bat/100.png"),
@@ -92,6 +97,37 @@ bindings_meta["__add"] = function(a, b)
   return setmetatable(table.move(a, 1, #a, #b + 1, b), bindings_meta)
 end
 
+-- Every status bar's database spinner, animated by one shared timer. Weak keys,
+-- so a screen's spinner goes away with the screen.
+local spinners = setmetatable({}, { __mode = "k" })
+local spinner_frame = 1
+local spinner_timer = nil
+
+local function step_spinners()
+  if not database.updating:get() then
+    spinner_timer:pause()
+    return
+  end
+  spinner_frame = spinner_frame % #spinner_frames + 1
+  local src = spinner_frames[spinner_frame]
+  for spinner in pairs(spinners) do
+    -- The image may already be deleted along with its screen; forget it.
+    if not pcall(spinner.set_src, spinner, src) then
+      spinners[spinner] = nil
+    end
+  end
+end
+
+local function start_spinners()
+  if not spinner_timer then
+    spinner_timer = lvgl.Timer {
+      period = 83,
+      cb = step_spinners,
+    }
+  end
+  spinner_timer:resume()
+end
+
 function widgets.StatusBar(parent, opts)
   local root = parent.root:Object {
     flex = {
@@ -150,7 +186,8 @@ function widgets.StatusBar(parent, opts)
   end
   theme.set_subject(title, "status_bar_title")
 
-  local db_updating = root:Image { src = img.db }
+  local db_updating = root:Image { src = spinner_frames[spinner_frame] }
+  spinners[db_updating] = true
   theme.set_subject(db_updating, "database_indicator")
   local bt_icon = root:Image {}
   local battery_icon = root:Image {}
@@ -205,7 +242,9 @@ function widgets.StatusBar(parent, opts)
   parent.bindings = {
     database.updating:bind(function(yes)
       if yes then
+        db_updating:set_src(spinner_frames[spinner_frame])
         db_updating:clear_flag(lvgl.FLAG.HIDDEN)
+        start_spinners()
       else
         db_updating:add_flag(lvgl.FLAG.HIDDEN)
       end
