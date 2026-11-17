@@ -255,30 +255,6 @@ static auto db_iterate(lua_State* state) -> int {
   return 1;
 }
 
-// Returns an array of up to n following records, read with one database seek.
-static auto db_iterate_batch(lua_State* state) -> int {
-  database::Iterator* it = db_check_iterator(state, 1);
-  lua_Integer n = luaL_checkinteger(state, 2);
-  std::vector<database::Record> res = it->nextBatch(n > 0 ? n : 0);
-
-  lua_createtable(state, res.size(), 0);
-  for (size_t i = 0; i < res.size(); i++) {
-    push_lua_record(state, res[i]);
-    lua_rawseti(state, -2, i + 1);
-  }
-  return 1;
-}
-
-// Moves forward n records with a single database seek.
-static auto db_iterate_skip(lua_State* state) -> int {
-  database::Iterator* it = db_check_iterator(state, 1);
-  lua_Integer n = luaL_checkinteger(state, 2);
-  if (n > 0) {
-    it->skip(n);
-  }
-  return 0;
-}
-
 static auto db_iterator_value(lua_State* state) -> int {
   database::Iterator* it = db_check_iterator(state, 1);
   std::optional<database::Record> res = it->value();
@@ -306,8 +282,6 @@ static auto db_iterator_gc(lua_State* state) -> int {
 
 static const struct luaL_Reg kDbIteratorFuncs[] = {{"next", db_iterate},
                                                    {"prev", db_iterate_prev},
-                                                   {"next_batch", db_iterate_batch},
-                                                   {"skip", db_iterate_skip},
                                                    {"clone", db_iterator_clone},
                                                    {"__call", db_iterate},
                                                    {"__gc", db_iterator_gc},
