@@ -26,7 +26,6 @@
 #include "lua/property.hpp"
 #include "system_fsm/service_locator.hpp"
 #include "ui/ui_events.hpp"
-#include "perf_trace.hpp"
 
 namespace lua {
 
@@ -34,7 +33,6 @@ namespace lua {
 
 static auto queue_add(lua_State* state) -> int {
   Bridge* instance = Bridge::Get(state);
-  perf::milestone("lua queue.add");
 
   if (lua_isinteger(state, 1)) {
     database::TrackId id = luaL_checkinteger(state, 1);
@@ -76,8 +74,6 @@ static auto queue_add(lua_State* state) -> int {
 }
 
 static auto queue_clear(lua_State* state) -> int {
-  perf::markRequest("play request (lua queue.clear)");
-  perf::Scope scope{"queue.clear"};
   Bridge* instance = Bridge::Get(state);
   audio::TrackQueue& queue = instance->services().track_queue();
   queue.clear();
@@ -111,7 +107,6 @@ static auto queue_save_to_playlist(lua_State* state) -> int {
 }
 
 static auto queue_play_from(lua_State* state) -> int {
-  perf::milestone("lua queue.play_from");
   Bridge* instance = Bridge::Get(state);
   audio::TrackQueue& queue = instance->services().track_queue();
   size_t len = 0;

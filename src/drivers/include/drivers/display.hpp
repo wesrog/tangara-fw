@@ -8,7 +8,6 @@
 
 #include <stdint.h>
 #include <cstdint>
-#include <atomic>
 #include <memory>
 
 #include "driver/spi_master.h"
@@ -21,13 +20,6 @@
 #include "drivers/gpios.hpp"
 
 namespace drivers {
-
-// Temporary timing: time spent waiting for the shared SPI bus before display
-// flushes, time spent flushing, and the number of flushes.
-extern std::atomic<int64_t> gFlushWaitUs;
-extern std::atomic<int64_t> gFlushUs;
-extern std::atomic<uint32_t> gFlushCount;
-
 
 /*
  * LVGL display driver for ST77XX family displays.

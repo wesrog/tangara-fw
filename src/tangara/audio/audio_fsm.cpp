@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
-#include "perf_trace.hpp"
 #include "audio/audio_fsm.hpp"
 
 #include <algorithm>
@@ -195,7 +194,6 @@ void AudioState::react(const QueueUpdate& ev) {
       return;
   }
 
-  perf::milestone("audio: queue says current track changed");
   tinyfsm::FsmList<AudioState>::dispatch(cmd);
 }
 
@@ -210,7 +208,6 @@ void AudioState::react(const SetTrack& ev) {
   auto new_track = ev.new_track;
   uint32_t seek_to = ev.seek_to_second.value_or(0);
   sServices->bg_worker().Dispatch<void>([=]() {
-    perf::milestone("audio: opening stream");
     std::shared_ptr<TaggedStream> stream;
     if (std::holds_alternative<database::TrackId>(new_track)) {
       stream = sStreamFactory->create(std::get<database::TrackId>(new_track),
@@ -224,7 +221,6 @@ void AudioState::react(const SetTrack& ev) {
     // This has the effect of stopping the current playback, which is generally
     // what the user expects to happen when they say "Play this track!", even
     // if the new track has an issue.
-    perf::milestone("audio: stream opened, handing to decoder");
     sDecoder->open(stream);
 
     if (stream) {
@@ -574,7 +570,6 @@ void AudioState::react(const internal::PrefetchNextTrack&) {
     if (!next) {
       return;
     }
-    perf::Scope scope{"prefetch next track tags"};
     // The tag parser caches its results, so the stream factory will find
     // them there when this track is played.
     sServices->tag_parser().ReadAndParseTags(*next);

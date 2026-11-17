@@ -40,6 +40,11 @@ local Iterator = {}
 --- @return Record[]
 function Iterator:next_batch(n) end
 
+--- Moves forward `n` records with a single database seek, as if `next()` was
+--- called `n` times.
+--- @param n integer
+function Iterator:skip(n) end
+
 --- A TrackId is a unique identifier, representing a playable track in the
 --- user's library.
 --- @class TrackId

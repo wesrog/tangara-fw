@@ -316,23 +316,6 @@ function widgets.play_focused()
   end
 end
 
--- Temporary timing for list scrolling. Printed every 20 focus steps.
-local perf_list = { n = 0, total = 0, max = 0, fetch = 0, remove = 0, add = 0 }
-function perf_list.record(dt)
-  perf_list.n = perf_list.n + 1
-  perf_list.total = perf_list.total + dt
-  if dt > perf_list.max then perf_list.max = dt end
-  if perf_list.n >= 20 then
-    print(string.format(
-      "perf list: 20 steps, avg %.1f ms, max %.1f ms, fetch %.1f, remove %.1f, add %.1f ms total, lua mem %d KiB",
-      perf_list.total * 50, perf_list.max * 1000, perf_list.fetch * 1000,
-      perf_list.remove * 1000, perf_list.add * 1000,
-      math.floor(collectgarbage("count"))))
-    perf_list.n, perf_list.total, perf_list.max = 0, 0, 0
-    perf_list.fetch, perf_list.remove, perf_list.add = 0, 0, 0
-  end
-end
-
 function widgets.InfiniteList(parent, iterator, opts)
   local infinite_list = {}
 
@@ -367,20 +350,38 @@ function widgets.InfiniteList(parent, iterator, opts)
 
   -- Records are read from the database in batches and kept in a small window
   -- of batches around what's on screen, so that scrolling rarely touches the
-  -- database. Each batch remembers an iterator positioned just before it, so
-  -- batches that fell out of the window can be read again cheaply.
+  -- database. Iterators positioned just before nearby batches are kept too,
+  -- so that batches which fell out of the window can be read again with one
+  -- seek. Both are bounded, since each record and iterator uses scarce
+  -- internal RAM; very long lists would otherwise run the device out of it.
   local kBatchSize = 20
   local kBatchesKept = 4
-  local anchors = { [0] = iterator:clone() }
+  local kAnchorsKept = 10
+  local start_iterator = iterator:clone()
+  local anchors = {}
   local batches = {}
   local last_batch = nil -- Index of the final batch, once we've seen it.
 
+  -- Returns a fresh iterator positioned just before batch k.
+  local function anchor_for(k)
+    if k == 0 then return start_iterator:clone() end
+    local anchor = anchors[k]
+    if anchor then return anchor:clone() end
+    -- Start from the nearest kept anchor below k (or the beginning), and skip
+    -- the rest of the way.
+    local base, base_k = start_iterator, 0
+    for j, a in pairs(anchors) do
+      if j < k and j > base_k then base, base_k = a, j end
+    end
+    local it = base:clone()
+    it:skip((k - base_k) * kBatchSize)
+    return it
+  end
+
   local function load_batch(k)
     if batches[k] then return batches[k] end
-    if last_batch and k > last_batch then return nil end
-    local anchor = anchors[k]
-    if not anchor then return nil end
-    local it = anchor:clone()
+    if k < 0 or (last_batch and k > last_batch) then return nil end
+    local it = anchor_for(k)
     local records = it:next_batch(kBatchSize)
     batches[k] = records
     if #records == kBatchSize then
@@ -393,21 +394,17 @@ function widgets.InfiniteList(parent, iterator, opts)
         batches[other] = nil
       end
     end
+    for other in pairs(anchors) do
+      if math.abs(other - k) > kAnchorsKept then
+        anchors[other] = nil
+      end
+    end
     return records
   end
 
   local function get_item(index)
     if index < 0 then return nil end
     local k = index // kBatchSize
-    -- Batches can only be found in order, since each one's starting point is
-    -- the end of the one before.
-    local first_missing = k
-    while first_missing > 0 and not anchors[first_missing] do
-      first_missing = first_missing - 1
-    end
-    for j = first_missing, k do
-      if not load_batch(j) then return nil end
-    end
     local records = load_batch(k)
     return records and records[index - k * kBatchSize + 1]
   end
@@ -464,21 +461,14 @@ function widgets.InfiniteList(parent, iterator, opts)
     -- animation is cut short by the next.
     btn:clear_flag(lvgl.FLAG.SCROLL_ON_FOCUS)
     btn:onevent(lvgl.EVENT.FOCUSED, function()
-      local perf_t0 = os.clock()
       btn:scroll_to_view(false)
       if refreshing then return end
       if this_item > last_selected and this_item - first_index > 3 then
         -- moving forward
         local to_add = get_item(last_index + 1)
         if to_add then
-          local perf_t1 = os.clock()
           remove_top()
-          local perf_t2 = os.clock()
           add_item(to_add, last_index + 1)
-          local perf_t3 = os.clock()
-          perf_list.fetch = perf_list.fetch + (perf_t1 - perf_t0)
-          perf_list.remove = perf_list.remove + (perf_t2 - perf_t1)
-          perf_list.add = perf_list.add + (perf_t3 - perf_t2)
         end
       end
       if this_item < last_selected then
@@ -493,7 +483,6 @@ function widgets.InfiniteList(parent, iterator, opts)
         end
       end
       last_selected = this_item
-      perf_list.record(os.clock() - perf_t0)
     end)
     if opts.context_callback then
       btn:onevent(lvgl.EVENT.LONG_PRESSED, opts.context_callback(item, this_item))

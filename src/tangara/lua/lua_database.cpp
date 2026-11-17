@@ -13,7 +13,6 @@
 
 #include "lua.hpp"
 #include "lua/bridge.hpp"
-#include "perf_trace.hpp"
 
 #include "esp_log.h"
 #include "lauxlib.h"
@@ -232,10 +231,7 @@ static auto push_iterator(lua_State* state, const database::Iterator& it)
 
 static auto db_iterate_prev(lua_State* state) -> int {
   database::Iterator* it = db_check_iterator(state, 1);
-  static perf::Stats sStats{"lua iterator prev", 20};
-  int64_t start = perf::now();
   std::optional<database::Record> res = --(*it);
-  sStats.add(perf::now() - start);
 
   if (res) {
     push_lua_record(state, *res);
@@ -248,10 +244,7 @@ static auto db_iterate_prev(lua_State* state) -> int {
 
 static auto db_iterate(lua_State* state) -> int {
   database::Iterator* it = db_check_iterator(state, 1);
-  static perf::Stats sStats{"lua iterator next", 20};
-  int64_t start = perf::now();
   std::optional<database::Record> res = ++(*it);
-  sStats.add(perf::now() - start);
 
   if (res) {
     push_lua_record(state, *res);
@@ -266,10 +259,7 @@ static auto db_iterate(lua_State* state) -> int {
 static auto db_iterate_batch(lua_State* state) -> int {
   database::Iterator* it = db_check_iterator(state, 1);
   lua_Integer n = luaL_checkinteger(state, 2);
-  static perf::Stats sStats{"lua iterator next_batch", 10};
-  int64_t start = perf::now();
   std::vector<database::Record> res = it->nextBatch(n > 0 ? n : 0);
-  sStats.add(perf::now() - start);
 
   lua_createtable(state, res.size(), 0);
   for (size_t i = 0; i < res.size(); i++) {
@@ -277,6 +267,16 @@ static auto db_iterate_batch(lua_State* state) -> int {
     lua_rawseti(state, -2, i + 1);
   }
   return 1;
+}
+
+// Moves forward n records with a single database seek.
+static auto db_iterate_skip(lua_State* state) -> int {
+  database::Iterator* it = db_check_iterator(state, 1);
+  lua_Integer n = luaL_checkinteger(state, 2);
+  if (n > 0) {
+    it->skip(n);
+  }
+  return 0;
 }
 
 static auto db_iterator_value(lua_State* state) -> int {
@@ -307,6 +307,7 @@ static auto db_iterator_gc(lua_State* state) -> int {
 static const struct luaL_Reg kDbIteratorFuncs[] = {{"next", db_iterate},
                                                    {"prev", db_iterate_prev},
                                                    {"next_batch", db_iterate_batch},
+                                                   {"skip", db_iterate_skip},
                                                    {"clone", db_iterator_clone},
                                                    {"__call", db_iterate},
                                                    {"__gc", db_iterator_gc},
