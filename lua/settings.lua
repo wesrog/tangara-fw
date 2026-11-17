@@ -484,6 +484,12 @@ settings.ThemeSettings = SettingsScreen:new {
     themeOptions["Dark"] = "/lua/theme_dark.lua"
     themeOptions["Light"] = "/lua/theme_light.lua"
     themeOptions["High Contrast"] = "/lua/theme_hicon.lua"
+    themeOptions["Amber CRT"] = "/lua/theme_amber.lua"
+    themeOptions["Synthwave"] = "/lua/theme_synthwave.lua"
+    themeOptions["Deep Sea"] = "/lua/theme_deep_sea.lua"
+    themeOptions["Sunset"] = "/lua/theme_sunset.lua"
+    themeOptions["Pea Green"] = "/lua/theme_pea_green.lua"
+    themeOptions["Paper"] = "/lua/theme_paper.lua"
 
     -- Parse theme directory for more themes
     local theme_dir_iter = filesystem.iterator("/.themes/")
@@ -500,7 +506,15 @@ settings.ThemeSettings = SettingsScreen:new {
     local options = ""
     local idx = 0
     local selected_idx = -1
-    for i, v in pairs(themeOptions) do
+    -- List themes alphabetically; pairs() order is unpredictable.
+    local themeNames = {}
+    for name in pairs(themeOptions) do
+      table.insert(themeNames, name)
+    end
+    table.sort(themeNames)
+
+    for _, i in ipairs(themeNames) do
+      local v = themeOptions[i]
       if (saved_theme == v) then
         selected_idx = idx
       end

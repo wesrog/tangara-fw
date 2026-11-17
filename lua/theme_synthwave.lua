@@ -1,0 +1,317 @@
+-- SPDX-FileCopyrightText: 2026 wes
+--
+-- SPDX-License-Identifier: GPL-3.0-only
+
+-- "Synthwave" theme.
+
+local lvgl = require("lvgl")
+
+local background_color = "#2b0b3f"
+local background_muted = "#3d1259"
+local text_color = "#f5e9ff"
+local highlight_color = "#ff2bd6"
+local highlight_text_color = "#ffffff" -- text/icons drawn on top of highlight_color
+local accent_color = "#00e5ff"
+local border_color = "#00e5ff"
+local icon_enabled_color = "#f5e9ff"
+local icon_disabled_color = "#7a5c8f"
+local button_radius = 5
+
+local theme_synthwave = {
+  base = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      bg_opa = lvgl.OPA(0),
+      text_font = font.fusion_12,
+    }},
+  },
+  root = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      bg_color = background_color,
+      bg_grad_dir = 1, -- LV_GRAD_DIR_VER
+      bg_grad_color = "#0a0014",
+      text_color = text_color,
+    }},
+  },
+  header = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      bg_color = background_muted,
+    }},
+  },
+  pop_up = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      bg_color = background_muted,
+      border_color = border_color,
+      border_width = 1,
+    }},
+  },
+  button = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      pad_left = 2,
+      pad_right = 2,
+      pad_top = 1,
+      pad_bottom = 1,
+      bg_color = background_muted,
+      image_recolor_opa = 255,
+      image_recolor = text_color,
+      radius = button_radius,
+    }},
+    {lvgl.PART.MAIN | lvgl.STATE.FOCUSED, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      bg_color = highlight_color,
+      text_color = highlight_text_color,
+      image_recolor_opa = 255,
+      image_recolor = highlight_text_color,
+    }},
+  },
+  listbutton = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = text_color,
+      flex_cross_place = lvgl.FLEX_ALIGN.CENTER,
+      pad_column = 4,
+      radius = button_radius,
+    }},
+    {lvgl.PART.MAIN | lvgl.STATE.FOCUSED, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      bg_color = highlight_color,
+      text_color = highlight_text_color,
+      image_recolor_opa = 255,
+      image_recolor = highlight_text_color,
+    }},
+  },
+  bar = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
+    }},
+  },
+  slider = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      bg_color = background_muted,
+      radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
+    }},
+    {lvgl.PART.INDICATOR, lvgl.Style {
+      radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
+      bg_color = highlight_color,
+    }},
+    {lvgl.PART.KNOB, lvgl.Style {
+      radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
+      pad_all = 2,
+      bg_color = background_muted,
+      border_color = border_color,
+      border_width = 1,
+    }},
+    {lvgl.PART.MAIN | lvgl.STATE.FOCUSED, lvgl.Style {
+      bg_color = background_muted,
+    }},
+    {lvgl.PART.KNOB | lvgl.STATE.FOCUSED, lvgl.Style {
+      bg_color = highlight_color,
+    }},
+    {lvgl.PART.KNOB | lvgl.STATE.EDITED, lvgl.Style {
+      pad_all = 2,
+    }},
+    {lvgl.PART.INDICATOR | lvgl.STATE.CHECKED, lvgl.Style {
+      bg_color = highlight_color,
+    }},
+  },
+  scrubber = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      bg_color = background_muted,
+      radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
+    }},
+    {lvgl.PART.INDICATOR, lvgl.Style {
+      radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
+      bg_color = highlight_color,
+    }},
+    {lvgl.PART.KNOB, lvgl.Style {
+      radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
+      bg_color = background_muted,
+    }},
+    {lvgl.PART.MAIN | lvgl.STATE.FOCUSED, lvgl.Style {
+      bg_color = background_muted,
+    }},
+    {lvgl.PART.KNOB | lvgl.STATE.FOCUSED, lvgl.Style {
+      bg_color = highlight_color,
+      pad_all = 1,
+    }},
+    {lvgl.PART.KNOB | lvgl.STATE.EDITED, lvgl.Style {
+      pad_all = 2,
+    }},
+    {lvgl.PART.INDICATOR | lvgl.STATE.CHECKED, lvgl.Style {
+      bg_color = highlight_color,
+    }},
+  },
+  switch = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      width = 18,
+      height = 10,
+      radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
+      bg_color = background_muted,
+      border_color = border_color,
+      border_width = 1,
+    }},
+    {lvgl.PART.INDICATOR, lvgl.Style {
+      radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
+      bg_color = background_muted,
+    }},
+    {lvgl.PART.INDICATOR | lvgl.STATE.CHECKED, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      bg_color = highlight_color,
+    }},
+    {lvgl.PART.KNOB, lvgl.Style {
+      radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
+      bg_opa = lvgl.OPA(100),
+      bg_color = text_color,
+      border_color = border_color,
+      border_width = 1,
+    }},
+    {lvgl.PART.KNOB | lvgl.STATE.FOCUSED, lvgl.Style {
+      bg_color = accent_color,
+    }},
+  },
+  dropdown = {
+    {lvgl.PART.MAIN, lvgl.Style{
+      bg_opa = lvgl.OPA(100),
+      radius = button_radius,
+      pad_all = 2,
+      border_width = 1,
+      border_color = border_color,
+      border_side = 15, -- LV_BORDER_SIDE_FULL
+      bg_color = background_muted,
+    }},
+    {lvgl.PART.MAIN | lvgl.STATE.FOCUSED, lvgl.Style {
+      bg_color = highlight_color,
+      text_color = highlight_text_color,
+      border_color = highlight_color,
+    }},
+    {lvgl.PART.INDICATOR, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = text_color,
+    }},
+  },
+  dropdownlist = {
+    {lvgl.PART.MAIN, lvgl.Style{
+      radius = button_radius,
+      pad_all = 2,
+      border_width = 1,
+      border_color = border_color,
+      bg_opa = lvgl.OPA(100),
+      bg_color = background_muted,
+      text_color = text_color,
+    }},
+    {lvgl.PART.SELECTED | lvgl.STATE.CHECKED, lvgl.Style {
+      bg_color = highlight_color,
+      text_color = highlight_text_color,
+    }},
+  },
+  database_indicator = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = accent_color,
+    }},
+  },
+  back_button = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = icon_enabled_color,
+    }},
+    {lvgl.PART.MAIN | lvgl.STATE.FOCUSED, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = highlight_text_color,
+    }},
+  },
+  settings_title = {
+   {lvgl.PART.MAIN, lvgl.Style {
+      pad_top = 2,
+      pad_bottom = 4,
+      text_font = font.fusion_10,
+      text_color = accent_color,
+    }},
+  },
+  icon_disabled = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = icon_disabled_color,
+    }},
+    {lvgl.PART.MAIN | lvgl.STATE.FOCUSED, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = highlight_text_color,
+    }},
+  },
+  icon_enabled = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = icon_enabled_color,
+    }},
+    {lvgl.PART.MAIN | lvgl.STATE.FOCUSED, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = highlight_text_color,
+    }},
+  },
+  now_playing = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
+      border_width = 1,
+      border_color = highlight_color,
+      border_side = 15, -- LV_BORDER_SIDE_FULL
+    }},
+  },
+  menu_icon = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      pad_all = 4,
+      radius = button_radius,
+    }},
+  },
+  bluetooth_icon = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = text_color,
+    }},
+  },
+  battery = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = text_color,
+    }},
+  },
+  battery_0 = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = "#ff3b5c",
+    }},
+  },
+  battery_charging = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = "#00e5ff",
+    }},
+  },
+  battery_charge_icon = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = "#fff35c",
+    }},
+  },
+  battery_charge_outline = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = background_muted,
+    }},
+  },
+  regulatory_icons = {
+    {lvgl.PART.MAIN, lvgl.Style {
+      image_recolor_opa = 255,
+      image_recolor = text_color,
+    }},
+  },
+}
+
+return theme_synthwave
