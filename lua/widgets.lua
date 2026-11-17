@@ -316,6 +316,23 @@ function widgets.play_focused()
   end
 end
 
+-- Temporary timing for list scrolling. Printed every 20 focus steps.
+local perf_list = { n = 0, total = 0, max = 0, fetch = 0, remove = 0, add = 0 }
+function perf_list.record(dt)
+  perf_list.n = perf_list.n + 1
+  perf_list.total = perf_list.total + dt
+  if dt > perf_list.max then perf_list.max = dt end
+  if perf_list.n >= 20 then
+    print(string.format(
+      "perf list: 20 steps, avg %.1f ms, max %.1f ms, fetch %.1f, remove %.1f, add %.1f ms total, lua mem %d KiB",
+      perf_list.total * 50, perf_list.max * 1000, perf_list.fetch * 1000,
+      perf_list.remove * 1000, perf_list.add * 1000,
+      math.floor(collectgarbage("count"))))
+    perf_list.n, perf_list.total, perf_list.max = 0, 0, 0
+    perf_list.fetch, perf_list.remove, perf_list.add = 0, 0, 0
+  end
+end
+
 function widgets.InfiniteList(parent, iterator, opts)
   local infinite_list = {}
 
@@ -447,14 +464,21 @@ function widgets.InfiniteList(parent, iterator, opts)
     -- animation is cut short by the next.
     btn:clear_flag(lvgl.FLAG.SCROLL_ON_FOCUS)
     btn:onevent(lvgl.EVENT.FOCUSED, function()
+      local perf_t0 = os.clock()
       btn:scroll_to_view(false)
       if refreshing then return end
       if this_item > last_selected and this_item - first_index > 3 then
         -- moving forward
         local to_add = get_item(last_index + 1)
         if to_add then
+          local perf_t1 = os.clock()
           remove_top()
+          local perf_t2 = os.clock()
           add_item(to_add, last_index + 1)
+          local perf_t3 = os.clock()
+          perf_list.fetch = perf_list.fetch + (perf_t1 - perf_t0)
+          perf_list.remove = perf_list.remove + (perf_t2 - perf_t1)
+          perf_list.add = perf_list.add + (perf_t3 - perf_t2)
         end
       end
       if this_item < last_selected then
@@ -469,6 +493,7 @@ function widgets.InfiniteList(parent, iterator, opts)
         end
       end
       last_selected = this_item
+      perf_list.record(os.clock() - perf_t0)
     end)
     if opts.context_callback then
       btn:onevent(lvgl.EVENT.LONG_PRESSED, opts.context_callback(item, this_item))

@@ -13,6 +13,7 @@
 #include "core/lv_obj_tree.h"
 #include "core/lv_refr.h"
 #include "display/lv_display.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/portmacro.h"
 #include "freertos/projdefs.h"
@@ -71,6 +72,26 @@ auto UiTask::Main() -> void {
     if (frame_ms >= 50) {
       ESP_LOGI("perf", "slow ui frame: %ld ms (+%ld ms)", frame_ms,
                perf::sinceRequestMs());
+    }
+    static int64_t last_mem_log = 0;
+    if (perf::now() - last_mem_log > 5'000'000) {
+      last_mem_log = perf::now();
+      lv_mem_monitor_t mon;
+      lv_mem_monitor(&mon);
+      ESP_LOGI("perf",
+               "mem: lvgl used %lu KiB (%u%%, frag %u%%, biggest free %lu "
+               "KiB), internal free %u KiB (biggest %u B), psram free %u KiB",
+               static_cast<unsigned long>((mon.total_size - mon.free_size) /
+                                          1024),
+               static_cast<unsigned>(mon.used_pct),
+               static_cast<unsigned>(mon.frag_pct),
+               static_cast<unsigned long>(mon.free_biggest_size / 1024),
+               static_cast<unsigned>(
+                   heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+               static_cast<unsigned>(
+                   heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),
+               static_cast<unsigned>(
+                   heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
     }
     vTaskDelay(pdMS_TO_TICKS(std::clamp<TickType_t>(delay, 16, 100)));
   }
