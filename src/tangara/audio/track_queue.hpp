@@ -83,6 +83,19 @@ class TrackQueue {
       std::variant<database::TrackId, database::TrackIterator, std::string>;
   auto append(Item i) -> void;
 
+  /*
+   * Appends an iterator's tracks. If the queue was empty, the first track
+   * starts playing straight away, even when shuffling; used when the user
+   * picked a specific track to play from.
+   */
+  auto appendStartingWithFirst(database::TrackIterator it) -> void;
+
+  /*
+   * The file that will play after the current one, if it's easy to know
+   * (playing in order, not shuffled or repeating one track).
+   */
+  auto peekNext() -> std::optional<std::string>;
+
   auto updateShuffler(bool andUpdatePosition) -> void;
 
   /*
@@ -130,7 +143,9 @@ class TrackQueue {
   auto next(QueueUpdate::Reason r) -> void;
   auto goTo(size_t position) -> void;
   auto getFilepath(database::TrackId id) -> std::optional<std::string>;
-  auto appendAsync(database::TrackIterator i, bool was_empty) -> void;
+  auto appendAsync(database::TrackIterator i,
+                   bool was_empty,
+                   bool start_with_first = false) -> void;
 
   mutable std::shared_mutex mutex_;
 

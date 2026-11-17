@@ -236,6 +236,13 @@ class Iterator {
   }
 
   auto prev() -> void;
+
+  /*
+   * Moves forward by `n` records, as if next() was called `n` times, but with
+   * a single database seek instead of one per record.
+   */
+  auto skip(size_t n) -> void;
+
   std::optional<Record> operator--() {
     prev();
     return value();

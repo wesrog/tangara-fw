@@ -101,6 +101,29 @@ auto Playlist::prev() -> void {
   }
 }
 
+auto Playlist::peekNext() -> std::optional<std::string> {
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (!file_open_ || file_error_ || pos_ + 1 >= total_size_) {
+    return {};
+  }
+  auto offset = f_tell(&file_);
+  TCHAR buff[512];
+  std::optional<std::string> res;
+  if (pos_ < 0) {
+    // Nothing has been read yet (the current value came from an append), so
+    // the file is still positioned before the current entry.
+    nextItem(buff);
+  }
+  auto item = nextItem(buff);
+  if (item) {
+    res = std::string{*item};
+  }
+  if (f_lseek(&file_, offset) != FR_OK) {
+    file_error_ = true;
+  }
+  return res;
+}
+
 auto Playlist::skipTo(size_t position) -> void {
   std::unique_lock<std::mutex> lock(mutex_);
   skipToLocked(position);
@@ -263,6 +286,13 @@ auto Playlist::skipToLocked(size_t position) -> void {
     return;
   }
 
+  // Moving to the very next entry (the common case when playing through a
+  // queue) only needs one more line read from where we already are.
+  if (pos_ >= 0 && position == static_cast<size_t>(pos_) + 1) {
+    advanceBy(1);
+    return;
+  }
+
   // Check our cache and go to nearest entry
   auto remainder = position % sample_size_;
   auto quotient = (position - remainder) / sample_size_;
@@ -279,6 +309,10 @@ auto Playlist::skipToLocked(size_t position) -> void {
     file_error_ = true;
     return;
   }
+
+  // The cached offset is the start of entry `quotient * sample_size_`, so we
+  // are now positioned just before it.
+  pos_ = static_cast<ssize_t>(quotient * sample_size_) - 1;
 
   // Count ahead entries.
   advanceBy(remainder + 1);
@@ -486,6 +520,65 @@ auto MutablePlaylist::clearLocked() -> bool {
   offset_cache_.clear();
   pos_ = -1;
   return true;
+}
+
+auto MutablePlaylist::appendAll(const std::vector<std::string>& paths)
+    -> void {
+  if (paths.empty()) {
+    return;
+  }
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (!file_open_ || file_error_) {
+    return;
+  }
+
+  auto offset = f_tell(&file_);
+  auto end = f_size(&file_);
+
+  std::string buf;
+  for (const auto& path : paths) {
+    if (path.empty()) {
+      continue;
+    }
+    if (total_size_ % sample_size_ == 0) {
+      offset_cache_.push_back(end + buf.size());
+    }
+    if (current_value_.empty()) {
+      current_value_ = path;
+    }
+    buf += path;
+    buf += '\n';
+    total_size_++;
+  }
+  if (buf.empty()) {
+    return;
+  }
+
+  auto res = f_lseek(&file_, end);
+  if (res != FR_OK) {
+    ESP_LOGE(kTag, "Seek to end of file failed? Error %d", res);
+    file_error_ = true;
+    return;
+  }
+  UINT written = 0;
+  res = f_write(&file_, buf.data(), buf.size(), &written);
+  if (res != FR_OK || written != buf.size()) {
+    ESP_LOGE(kTag, "Failed to append to playlist: %d", res);
+    file_error_ = true;
+    return;
+  }
+  res = f_lseek(&file_, offset);
+  if (res != FR_OK) {
+    ESP_LOGE(kTag, "Failed to restore file position after append?");
+    file_error_ = true;
+    return;
+  }
+  res = f_sync(&file_);
+  if (res != FR_OK) {
+    ESP_LOGE(kTag, "Failed to sync playlist file after append");
+    file_error_ = true;
+    return;
+  }
 }
 
 auto MutablePlaylist::append(Item i) -> void {

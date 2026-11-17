@@ -19,7 +19,9 @@ static constexpr char kTag[] = "readahead";
 static constexpr size_t kReadaheadStreamBufferSize = 1024 * 1024 + 1;
 static EXT_RAM_BSS_ATTR uint8_t sReadaheadStreamBufferStorage[kReadaheadStreamBufferSize];
 
-static constexpr size_t kFileReadBufferSize = 1024 * 32;
+// The display shares its SPI bus with the SD card, so each read here holds the
+// screen up until it finishes. Smaller reads keep those waits short.
+static constexpr size_t kFileReadBufferSize = 1024 * 8;
 static EXT_RAM_BSS_ATTR std::array<std::byte, kFileReadBufferSize> sFileReadBuffer;
 
 static_assert((kReadaheadStreamBufferSize - 1) % kFileReadBufferSize == 0,
@@ -154,7 +156,10 @@ auto ReadaheadSource::SetPreambleFinished() -> void {
   // This partial filling sometimes results in a noticeable delay when loading tracks, however, that is better
   // than starting to play then hearing a few stutters at the beginning of the track before the cache fills up.
   // When the read speed is not super slow, this should not cause a noticeable delay.
-  static constexpr size_t kPrefillSize = 1024 * 128;
+  // 64 KiB covers a few hundred ms of even high-bitrate FLAC, while the reader
+  // task keeps filling from there. 128 KiB took ~320 ms on device before the
+  // first sample, on every track start.
+  static constexpr size_t kPrefillSize = 1024 * 64;
   static_assert(kPrefillSize % kFileReadBufferSize == 0, "kPrefillSize must be an integer multiple of kFileReadBufferSize");
   for (int i = 0; i < kPrefillSize / kFileReadBufferSize; i++) {
     size_t read = wrapped_->Read(sFileReadBuffer);
