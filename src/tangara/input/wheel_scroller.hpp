@@ -61,7 +61,9 @@ class WheelScroller {
   // kAccelFullSpeed. For reference, 256 units/s is one revolution per second.
   static constexpr int kAccelStartSpeed = 256;
   static constexpr int kAccelFullSpeed = 640;
-  static constexpr int kMaxGain = 4;
+  // Kept low: list rows take a while to redraw, so a higher gain just makes
+  // the list lurch along in bursts, and buzzes the haptics.
+  static constexpr int kMaxGain = 2;
   // Acceleration only kicks in once the finger has travelled this far in one
   // direction without stopping, so that quick short nudges (to move one or
   // two items) are never accelerated past the item you wanted.
