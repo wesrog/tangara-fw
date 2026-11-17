@@ -51,10 +51,18 @@ static auto queue_add(lua_State* state) -> int {
       queue.append(path);
     });
   } else {
-    database::Iterator* it = db_check_iterator(state, 1);
-    instance->services().bg_worker().Dispatch<void>([=]() {
+    // Copy the iterator now; the Lua object may be collected before the
+    // background task runs.
+    database::Iterator it = *db_check_iterator(state, 1);
+    // Optionally skip the first n records. This is done off the UI task, and
+    // with a single seek rather than one per record.
+    lua_Integer skip = luaL_optinteger(state, 2, 0);
+    instance->services().bg_worker().Dispatch<void>([=]() mutable {
+      if (skip > 0) {
+        it.skip(skip);
+      }
       audio::TrackQueue& queue = instance->services().track_queue();
-      queue.append(database::TrackIterator{*it});
+      queue.append(database::TrackIterator{it});
     });
   }
 

@@ -13,7 +13,9 @@
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
+#include <string>
 #include <variant>
+#include <vector>
 
 #include "MillerShuffle.h"
 #include "esp_random.h"
@@ -265,11 +267,29 @@ auto TrackQueue::appendAsync(database::TrackIterator it, bool was_empty)
       ready_ = false;
     }
     loading_ = true;
-    size_t next_update_at = 10;
+    // When not shuffling, hand the first track to the player as soon as we
+    // have it, instead of waiting for a batch to load. Shuffling waits for a
+    // bigger pool to pick a random first track from.
+    size_t next_update_at = (update_current && !shuffle_) ? 1 : 10;
+
+    // Paths are collected here and written to the queue file in batches, since
+    // each write to the SD card is slow.
+    std::vector<std::string> batch;
+    auto flush = [&]() {
+      if (batch.empty()) {
+        return;
+      }
+      const std::unique_lock<std::shared_mutex> lock(mutex_);
+      int64_t t0 = perf::now();
+      playlist_.appendAll(batch);
+      write_us += perf::now() - t0;
+      batch.clear();
+    };
 
     while (!cancel_appending_async_) {
       auto next = *it;
       if (!next) {
+        flush();
         // The current iterator is out of tracks. Is there another iterator for
         // us to process?
         {
@@ -301,29 +321,24 @@ auto TrackQueue::appendAsync(database::TrackIterator it, bool was_empty)
         }
       }
 
-      // Keep this critical section small so that we're not blocking methods
-      // like current().
-      {
-        const std::unique_lock<std::shared_mutex> lock(mutex_);
-        int64_t t0 = perf::now();
-        auto filename = getFilepath(*next).value_or("");
-        int64_t t1 = perf::now();
-        if (!filename.empty()) {
-          playlist_.append(filename);
-        }
-        int64_t t2 = perf::now();
-        path_us += t1 - t0;
-        write_us += t2 - t1;
-        appended++;
+      // The database lookup doesn't need the queue's lock.
+      int64_t t0 = perf::now();
+      auto filename = getFilepath(*next).value_or("");
+      path_us += perf::now() - t0;
+      if (!filename.empty()) {
+        batch.push_back(std::move(filename));
       }
-      int64_t t3 = perf::now();
+      appended++;
+
+      int64_t t1 = perf::now();
       it++;
-      iter_us += perf::now() - t3;
+      iter_us += perf::now() - t1;
 
       // Appending very large iterators can take a while. Send out periodic
       // queue updates during them so that the user has an idea what's going
       // on.
       if (!--next_update_at) {
+        flush();
         notifyChanged(false, Reason::kBulkLoadingUpdate);
 
         if (update_current) {
@@ -355,7 +370,7 @@ auto TrackQueue::appendAsync(database::TrackIterator it, bool was_empty)
           updateShuffler(false);
         }
 
-        next_update_at = util::sRandom->RangeInclusive(10, 20);
+        next_update_at = util::sRandom->RangeInclusive(20, 40);
       }
     }
 

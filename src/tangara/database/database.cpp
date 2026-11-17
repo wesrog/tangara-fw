@@ -873,6 +873,17 @@ auto Iterator::next() -> void {
   iterate(new_key);
 }
 
+auto Iterator::skip(size_t n) -> void {
+  if (n == 0) {
+    return;
+  }
+  SearchKey new_key = key_;
+  // The first step is the same as next(); every further step moves one more
+  // record along from there.
+  new_key.offset = (new_key.offset == -1 ? 0 : 1) + static_cast<int>(n - 1);
+  iterate(new_key);
+}
+
 auto Iterator::prev() -> void {
   SearchKey new_key = key_;
   new_key.offset = -1;

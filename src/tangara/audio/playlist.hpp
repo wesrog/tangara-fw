@@ -8,6 +8,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <variant>
 
 #include "ff.h"
@@ -90,6 +91,13 @@ class MutablePlaylist : public Playlist {
 
   auto clear() -> bool;
   auto append(Item i) -> void;
+
+  /*
+   * Appends many paths at once, with a single write and sync. Much faster
+   * than calling append() for each one, since every append touches the SD
+   * card.
+   */
+  auto appendAll(const std::vector<std::string>& paths) -> void;
 
  private:
   auto clearLocked() -> bool;

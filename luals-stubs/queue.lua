@@ -22,7 +22,8 @@ local queue = {}
 --- iterators passed to this method will be unnested and expanded into the track
 --- ids they contain.
 --- @param val TrackId|Iterator|string
-function queue.add(val) end
+--- @param skip? integer When val is an iterator, skip this many records first.
+function queue.add(val, skip) end
 
 --- Opens a playlist file from a filepath
 --- This will replace the existing queue
