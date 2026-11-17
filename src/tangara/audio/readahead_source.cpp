@@ -19,7 +19,9 @@ static constexpr char kTag[] = "readahead";
 static constexpr size_t kReadaheadStreamBufferSize = 1024 * 1024 + 1;
 static EXT_RAM_BSS_ATTR uint8_t sReadaheadStreamBufferStorage[kReadaheadStreamBufferSize];
 
-static constexpr size_t kFileReadBufferSize = 1024 * 32;
+// The display shares its SPI bus with the SD card, so each read here holds the
+// screen up until it finishes. Smaller reads keep those waits short.
+static constexpr size_t kFileReadBufferSize = 1024 * 8;
 static EXT_RAM_BSS_ATTR std::array<std::byte, kFileReadBufferSize> sFileReadBuffer;
 
 static_assert((kReadaheadStreamBufferSize - 1) % kFileReadBufferSize == 0,

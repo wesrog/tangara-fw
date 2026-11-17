@@ -49,6 +49,9 @@ auto UiTask::Main() -> void {
   auto* events = events::queues::Ui();
   while (true) {
     int64_t frame_start = perf::now();
+    drivers::gFlushWaitUs = 0;
+    drivers::gFlushUs = 0;
+    drivers::gFlushCount = 0;
     while (events->Service(0))
       ;
 
@@ -70,8 +73,13 @@ auto UiTask::Main() -> void {
     TickType_t delay = lv_timer_handler();
     int32_t frame_ms = static_cast<int32_t>((perf::now() - frame_start) / 1000);
     if (frame_ms >= 50) {
-      ESP_LOGI("perf", "slow ui frame: %ld ms (+%ld ms)", frame_ms,
-               perf::sinceRequestMs());
+      ESP_LOGI("perf",
+               "slow ui frame: %ld ms (+%ld ms); %lu flushes, %lld ms "
+               "flushing, %lld ms waiting for SPI bus",
+               frame_ms, perf::sinceRequestMs(),
+               static_cast<unsigned long>(drivers::gFlushCount.load()),
+               drivers::gFlushUs.load() / 1000,
+               drivers::gFlushWaitUs.load() / 1000);
     }
     static int64_t last_mem_log = 0;
     if (perf::now() - last_mem_log > 5'000'000) {

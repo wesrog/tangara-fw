@@ -5,6 +5,7 @@
  */
 
 #include "drivers/display.hpp"
+#include "esp_timer.h"
 #include <stdint.h>
 
 #include <cmath>
@@ -58,6 +59,11 @@ static const int kDisplayBufferSize = 160 * 128 / 10;
 DMA_ATTR static lv_color_t kDisplayBuffer[kDisplayBufferSize];
 
 namespace drivers {
+
+std::atomic<int64_t> gFlushWaitUs{0};
+std::atomic<int64_t> gFlushUs{0};
+std::atomic<uint32_t> gFlushCount{0};
+
 
 /*
  * Callback invoked by LVGL when there is new data to be written to the display.
@@ -335,7 +341,10 @@ void Display::OnLvglFlush(const lv_area_t* area, uint8_t* color_map) {
   uint32_t size = lv_area_get_width(area) * lv_area_get_height(area);
   lv_draw_sw_rgb565_swap(color_map, size);
 
+  int64_t wait_start = esp_timer_get_time();
   spi_device_acquire_bus(handle_, portMAX_DELAY);
+  int64_t flush_start = esp_timer_get_time();
+  gFlushWaitUs += flush_start - wait_start;
   gpio_.SdMuxEnable(false);
 
   // First we need to specify the rectangle of the display we're writing into.
@@ -357,6 +366,8 @@ void Display::OnLvglFlush(const lv_area_t* area, uint8_t* color_map) {
 
   gpio_.SdMuxEnable(true);
   spi_device_release_bus(handle_);
+  gFlushUs += esp_timer_get_time() - flush_start;
+  gFlushCount++;
 
   if (!first_flush_finished_ && lv_disp_flush_is_last(display_)) {
     first_flush_finished_ = true;
