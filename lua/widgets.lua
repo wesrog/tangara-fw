@@ -338,9 +338,10 @@ function widgets.InfiniteList(parent, iterator, opts)
     if item_opts.focus then
       btn:focus()
     end
-    -- opts.callback should take an item and return a function matching the arg of onClicked
+    -- opts.callback should take an item (and optionally its index in the
+    -- list) and return a function matching the arg of onClicked
     if opts.callback then
-      btn:onClicked(opts.callback(item))
+      btn:onClicked(opts.callback(item, this_item))
     end
     -- Scroll instantly rather than animating on every step. Animating each
     -- item while the wheel is spinning makes the list feel chunky, as each
@@ -372,7 +373,7 @@ function widgets.InfiniteList(parent, iterator, opts)
       last_selected = this_item
     end)
     if opts.context_callback then
-      btn:onevent(lvgl.EVENT.LONG_PRESSED, opts.context_callback(item))
+      btn:onevent(lvgl.EVENT.LONG_PRESSED, opts.context_callback(item, this_item))
     end
     btn:add_style(styles.list_item)
     return btn

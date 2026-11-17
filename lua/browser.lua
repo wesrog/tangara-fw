@@ -118,10 +118,11 @@ return screen:new {
       end
     end
 
+    local list_iterator = self.iterator:clone()
     widgets.InfiniteList(self.root, self.iterator, {
       focus_first_item = true,
       get_icon = get_icon_func,
-      callback = function(item)
+      callback = function(item, index)
         return function()
           local contents = item:contents()
           if type(contents) == "userdata" then
@@ -137,7 +138,13 @@ return screen:new {
             if (track and longform_content) then
               queue.play_from(track.filepath, track.saved_position)
             else
-              queue.add(contents)
+              -- Play from the selected track through to the end of the list,
+              -- like selecting a song in an album.
+              local from_here = list_iterator:clone()
+              for _ = 1, index do
+                from_here:next()
+              end
+              queue.add(from_here)
             end
             playback.playing:set(true)
             backstack.push(playing:new())
@@ -146,14 +153,9 @@ return screen:new {
       end,
       context_callback = function(item)
         return function()
-          local contents = item:contents()
-          if type(contents) == "userdata" then
-            return;
-          else
-            backstack.push(require("context_menu"):new {
-              item = item
-            })
-          end
+          backstack.push(require("context_menu"):new {
+            item = item
+          })
         end
       end
     })

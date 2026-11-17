@@ -8,6 +8,7 @@ local widgets = require("widgets")
 local backstack = require("backstack")
 local font = require("font")
 local queue = require("queue")
+local playback = require("playback")
 local screen = require("screen")
 local theme = require("theme")
 local styles = require("styles")
@@ -38,6 +39,23 @@ return screen:new {
       h = lvgl.PCT(100),
       flex_grow = 1,
     })
+
+    local play = function(shuffle)
+      queue.clear()
+      queue.random:set(shuffle)
+      queue.add(self.item:contents())
+      playback.playing:set(true)
+      backstack.pop()
+      require("playing"):push_if_not_shown()
+    end
+
+    local play_btn = menu_items:add_btn(nil, "Play")
+    play_btn:onClicked(function() play(false) end)
+    play_btn:add_style(styles.list_item)
+
+    local shuffle_btn = menu_items:add_btn(nil, "Shuffle")
+    shuffle_btn:onClicked(function() play(true) end)
+    shuffle_btn:add_style(styles.list_item)
 
     local queue_btn = menu_items:add_btn(nil, "Add to Queue")
     queue_btn:onClicked(function()
