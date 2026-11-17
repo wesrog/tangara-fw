@@ -44,6 +44,8 @@ TouchWheel::TouchWheel(drivers::NvsStorage& nvs,
       jump_next_("jump_next", {}),
       jump_prev_("jump_prev", {}),
       jump_end_("jump_end", {}),
+      jump_release_("jump_release", {}),
+      jumped_this_touch_(false),
       locked_(false),
       is_scrolling_(false),
       last_scroll_us_(0),
@@ -113,11 +115,17 @@ auto TouchWheel::read(lv_indev_data_t* data,
   if (scroller_.jumps() != 0) {
     // One click per jump, for haptic feedback.
     events.push_back(InputEvent::kOnPress);
+    jumped_this_touch_ = true;
   }
 
   const bool touched = wheel_data.is_wheel_touched;
   const bool landed = touched && !was_touched_;
   const bool released = !touched && was_touched_;
+
+  if (released && jumped_this_touch_) {
+    jumped_this_touch_ = false;
+    jump_release_.hooks()[0].get().invoke(data);
+  }
 
   // Work out what this touch could still be: a tap on an edge, a hold on an
   // edge, or neither. Taps are strict, so that scrolling never sets them off.
@@ -235,7 +243,7 @@ auto TouchWheel::name() -> std::string {
 auto TouchWheel::triggers()
     -> std::vector<std::reference_wrapper<TriggerHooks>> {
   return {centre_, up_, right_, down_, left_, jump_next_, jump_prev_,
-          jump_end_};
+          jump_end_, jump_release_};
 }
 
 auto TouchWheel::onLock() -> void {

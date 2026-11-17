@@ -103,6 +103,11 @@ GLOBAL_BINDINGS = {
       hooks.wheel.jump_end.click = function()
         require("widgets").jump_focused(0)
       end
+      if hooks.wheel.jump_release then
+        hooks.wheel.jump_release.click = function()
+          require("widgets").jump_focused(nil)
+        end
+      end
     end
   end),
   sd_card.mounted:bind(function(mounted)

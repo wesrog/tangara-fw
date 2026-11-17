@@ -424,6 +424,8 @@ function widgets.InfiniteList(parent, iterator, opts)
   end
 
   local jump
+  -- Keeps the letter overlay (if it's showing) in step with the focused row.
+  local follow_letter
 
   local function add_item(item, index, item_opts)
     if not item then
@@ -468,6 +470,9 @@ function widgets.InfiniteList(parent, iterator, opts)
     btn:clear_flag(lvgl.FLAG.SCROLL_ON_FOCUS)
     btn:onevent(lvgl.EVENT.FOCUSED, function()
       btn:scroll_to_view(false)
+      if follow_letter then
+        follow_letter(item)
+      end
       if refreshing then return end
       if this_item > last_selected and this_item - first_index > 3 then
         -- moving forward
@@ -517,7 +522,20 @@ function widgets.InfiniteList(parent, iterator, opts)
       end
       add_item(val, idx, { focus = idx == 0 })
     end
+    -- Also show a few rows above the one we landed on. Without these, the
+    -- landed row is the first in the list, so scrolling back moves focus out
+    -- of the list and into the buttons above it.
+    for _ = 1, 4 do
+      local to_add = bck_iterator:value()
+      if not to_add then
+        break
+      end
+      bck_iterator:prev()
+      add_item(to_add, first_index - 1)
+    end
     refreshing = false
+    -- Rows added above must come first in the focus order too.
+    refresh_group()
   end
 
   -- Jumping by letter. While the wheel is spinning fast, only the letter
@@ -526,6 +544,7 @@ function widgets.InfiniteList(parent, iterator, opts)
   local overlay = nil
   local overlay_label = nil
   local overlay_timer = nil
+  local overlay_shown = false
 
   local function hide_overlay_after(ms)
     if overlay_timer then
@@ -535,6 +554,7 @@ function widgets.InfiniteList(parent, iterator, opts)
       period = ms,
       cb = function(t)
         t:pause()
+        overlay_shown = false
         if overlay then
           pcall(overlay.add_flag, overlay, lvgl.FLAG.HIDDEN)
         end
@@ -563,11 +583,25 @@ function widgets.InfiniteList(parent, iterator, opts)
     overlay_label:set { text = letter_of(text) }
     overlay_label:center()
     overlay:clear_flag(lvgl.FLAG.HIDDEN)
-    -- In case the spin never ends here (e.g. the screen changed).
-    hide_overlay_after(1500)
+    overlay_shown = true
+    -- The overlay stays up until the finger lifts. This is only a fallback,
+    -- in case the release never reaches this list (e.g. the screen changed).
+    hide_overlay_after(10000)
+  end
+
+  follow_letter = function(item)
+    if overlay_shown then
+      overlay_label:set { text = letter_of(tostring(item)) }
+      overlay_label:center()
+    end
   end
 
   jump = function(direction)
+    if direction == nil then
+      -- The finger has lifted. Stop showing the letter.
+      hide_overlay_after(300)
+      return
+    end
     if direction == 0 then
       -- The spin has slowed down. Land on the letter we jumped to.
       if pending then
@@ -579,7 +613,7 @@ function widgets.InfiniteList(parent, iterator, opts)
         target:prev()
         fill(target)
       end
-      hide_overlay_after(500)
+      -- Keep showing the letter until the finger lifts.
       return
     end
     if not pending then
