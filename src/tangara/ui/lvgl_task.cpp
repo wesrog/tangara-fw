@@ -5,6 +5,7 @@
  */
 
 #include "ui/lvgl_task.hpp"
+#include "perf_trace.hpp"
 
 #include "core/lv_group.h"
 #include "core/lv_obj.h"
@@ -44,6 +45,7 @@ auto UiTask::Main() -> void {
   lv_group_t* current_group = nullptr;
   auto* events = events::queues::Ui();
   while (true) {
+    int64_t frame_start = perf::now();
     while (events->Service(0))
       ;
 
@@ -63,6 +65,11 @@ auto UiTask::Main() -> void {
     }
 
     TickType_t delay = lv_timer_handler();
+    int32_t frame_ms = static_cast<int32_t>((perf::now() - frame_start) / 1000);
+    if (frame_ms >= 50) {
+      ESP_LOGI("perf", "slow ui frame: %ld ms (+%ld ms)", frame_ms,
+               perf::sinceRequestMs());
+    }
     vTaskDelay(pdMS_TO_TICKS(std::clamp<TickType_t>(delay, 16, 100)));
   }
 }

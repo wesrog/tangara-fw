@@ -13,6 +13,7 @@
 
 #include "lua.hpp"
 #include "lua/bridge.hpp"
+#include "perf_trace.hpp"
 
 #include "esp_log.h"
 #include "lauxlib.h"
@@ -231,7 +232,10 @@ static auto push_iterator(lua_State* state, const database::Iterator& it)
 
 static auto db_iterate_prev(lua_State* state) -> int {
   database::Iterator* it = db_check_iterator(state, 1);
+  static perf::Stats sStats{"lua iterator prev", 20};
+  int64_t start = perf::now();
   std::optional<database::Record> res = --(*it);
+  sStats.add(perf::now() - start);
 
   if (res) {
     push_lua_record(state, *res);
@@ -244,7 +248,10 @@ static auto db_iterate_prev(lua_State* state) -> int {
 
 static auto db_iterate(lua_State* state) -> int {
   database::Iterator* it = db_check_iterator(state, 1);
+  static perf::Stats sStats{"lua iterator next", 20};
+  int64_t start = perf::now();
   std::optional<database::Record> res = ++(*it);
+  sStats.add(perf::now() - start);
 
   if (res) {
     push_lua_record(state, *res);

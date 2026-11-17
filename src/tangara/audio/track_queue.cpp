@@ -26,6 +26,7 @@
 #include "database/track.hpp"
 #include "events/event_queue.hpp"
 #include "memory_resource.hpp"
+#include "perf_trace.hpp"
 #include "random.hpp"
 #include "tasks.hpp"
 #include "track_queue.hpp"
@@ -256,6 +257,9 @@ auto TrackQueue::appendAsync(database::TrackIterator it, bool was_empty)
   }
 
   bg_worker_.Dispatch<void>([=, this]() mutable {
+    perf::milestone("queue append started");
+    int64_t iter_us = 0, path_us = 0, write_us = 0;
+    size_t appended = 0;
     bool update_current = was_empty;
     if (update_current) {
       ready_ = false;
@@ -280,6 +284,12 @@ auto TrackQueue::appendAsync(database::TrackIterator it, bool was_empty)
             // First make sure the shuffler has the final count.
             updateShuffler(update_current);
 
+            ESP_LOGI("perf",
+                     "queue append done: %u tracks, iterate %lld ms, "
+                     "path lookup %lld ms, playlist write %lld ms (+%ld ms)",
+                     appended, iter_us / 1000, path_us / 1000,
+                     write_us / 1000, perf::sinceRequestMs());
+
             // Now reset all our state.
             loading_ = false;
             ready_ = true;
@@ -295,12 +305,20 @@ auto TrackQueue::appendAsync(database::TrackIterator it, bool was_empty)
       // like current().
       {
         const std::unique_lock<std::shared_mutex> lock(mutex_);
+        int64_t t0 = perf::now();
         auto filename = getFilepath(*next).value_or("");
+        int64_t t1 = perf::now();
         if (!filename.empty()) {
           playlist_.append(filename);
         }
+        int64_t t2 = perf::now();
+        path_us += t1 - t0;
+        write_us += t2 - t1;
+        appended++;
       }
+      int64_t t3 = perf::now();
       it++;
+      iter_us += perf::now() - t3;
 
       // Appending very large iterators can take a while. Send out periodic
       // queue updates during them so that the user has an idea what's going
@@ -321,6 +339,11 @@ auto TrackQueue::appendAsync(database::TrackIterator it, bool was_empty)
           } else if (!shuffle_ && playlist_.size() > 0) {
             // If the queue was empty, then we want to start playing the first
             // track without waiting for the entire queue to finish loading
+            ESP_LOGI("perf",
+                     "queue first batch: %u tracks, iterate %lld ms, "
+                     "path lookup %lld ms, playlist write %lld ms (+%ld ms)",
+                     appended, iter_us / 1000, path_us / 1000,
+                     write_us / 1000, perf::sinceRequestMs());
             ready_ = true;
             notifyChanged(true, Reason::kExplicitUpdate);
             update_current = false;
@@ -379,6 +402,12 @@ auto TrackQueue::goTo(size_t position) -> void {
 }
 
 auto TrackQueue::next(Reason r) -> void {
+  if (r == Reason::kExplicitUpdate) {
+    perf::markRequest("skip next");
+  } else {
+    perf::markRequest("track finished, next");
+  }
+  perf::Scope scope{"queue.next"};
   bool changed = false;
 
   {
@@ -404,6 +433,8 @@ auto TrackQueue::next(Reason r) -> void {
 }
 
 auto TrackQueue::previous() -> void {
+  perf::markRequest("skip previous");
+  perf::Scope scope{"queue.previous"};
   bool changed = true;
 
   {

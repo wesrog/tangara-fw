@@ -25,6 +25,7 @@
 #include "drivers/spi.hpp"
 #include "tasks.hpp"
 #include "types.hpp"
+#include "perf_trace.hpp"
 
 [[maybe_unused]] static const char* kTag = "SRC";
 
@@ -50,7 +51,11 @@ auto FatfsStreamFactory::create(database::TrackId id, uint32_t offset)
 
 auto FatfsStreamFactory::create(std::string path, uint32_t offset)
     -> std::shared_ptr<TaggedStream> {
-  auto tags = tag_parser_.ReadAndParseTags(path);
+  std::shared_ptr<database::TrackTags> tags;
+  {
+    perf::Scope scope{"stream: read tags"};
+    tags = tag_parser_.ReadAndParseTags(path);
+  }
   if (!tags) {
     return {};
   }
@@ -66,7 +71,11 @@ auto FatfsStreamFactory::create(std::string path, uint32_t offset)
   }
 
   std::unique_ptr<FIL> file = std::make_unique<FIL>();
-  FRESULT res = f_open(file.get(), path.c_str(), FA_READ);
+  FRESULT res;
+  {
+    perf::Scope scope{"stream: f_open"};
+    res = f_open(file.get(), path.c_str(), FA_READ);
+  }
   if (res != FR_OK) {
     ESP_LOGE(kTag, "failed to open file! res: %i", res);
     return {};

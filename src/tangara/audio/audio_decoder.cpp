@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  */
 
+#include "perf_trace.hpp"
 #include "audio/audio_decoder.hpp"
 
 #include <cassert>
@@ -143,7 +144,11 @@ auto Decoder::prepareDecode(std::shared_ptr<TaggedStream> stream) -> void {
     return;
   }
 
-  auto open_res = codec_->OpenStream(stream, stream->Offset());
+  perf::milestone("decoder: got stream");
+  auto open_res = [&]() {
+    perf::Scope scope{"decoder: codec OpenStream"};
+    return codec_->OpenStream(stream, stream->Offset());
+  }();
   if (open_res.has_error()) {
     ESP_LOGE(kTag, "codec failed to start: %s",
              codecs::ICodec::ErrorString(open_res.error()).c_str());
@@ -176,6 +181,7 @@ auto Decoder::prepareDecode(std::shared_ptr<TaggedStream> stream) -> void {
   }
 
   stream_->SetPreambleFinished();
+  first_decode_ = true;
   events::Audio().Dispatch(internal::DecodingStarted{.track = track_});
   processor_->beginStream(track_);
 }
@@ -195,6 +201,10 @@ auto Decoder::continueDecode() -> bool {
   }
 
   auto res = codec_->DecodeTo(codec_buffer_);
+  if (first_decode_) {
+    first_decode_ = false;
+    perf::milestone("decoder: first samples decoded");
+  }
   if (res.has_error()) {
     return false;
   }

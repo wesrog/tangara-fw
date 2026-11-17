@@ -53,6 +53,7 @@ class Decoder {
 
   std::shared_ptr<codecs::IStream> stream_;
   std::unique_ptr<codecs::ICodec> codec_;
+  bool first_decode_ = false;
   std::shared_ptr<TrackInfo> track_;
 
   std::span<sample::Sample> codec_buffer_;
