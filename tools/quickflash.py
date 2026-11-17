@@ -83,10 +83,46 @@ def expected_bytes(esp, addr, data, settings, flash_size, chip):
     return cmds._update_image_flash_params(esp, addr, ns, data)
 
 
+def other_flashers():
+    """Other processes that look like they're using the device (esptool,
+    idf.py flash/monitor, serial captures). Two flashers at once corrupt the
+    write, so refuse to start while one is running."""
+    me = {os.getpid(), os.getppid()}
+    found = []
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit() or int(pid) in me:
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                cmd = f.read().replace(b"\0", b" ").decode(errors="replace").strip()
+        except OSError:
+            continue
+        if "quickflash" in cmd:
+            continue
+        if ("esptool" in cmd or
+                ("idf.py" in cmd and any(w in cmd.split() for w in ("flash", "app-flash", "monitor"))) or
+                ("ttyACM" in cmd or "cool_tech_zone_Tangara" in cmd)):
+            found.append(f"{pid}: {cmd[:120]}")
+    return found
+
+
+def connect(port):
+    """Opens the port, retrying briefly: right after a reset the port can
+    report busy for a second or two."""
+    for attempt in range(5):
+        try:
+            return cmds.detect_chip(port, esptool.loader.ESPLoader.ESP_ROM_BAUD)
+        except Exception as e:
+            if attempt == 4:
+                raise
+            log(f"couldn't open {port} ({e}); retrying")
+            time.sleep(2)
+
+
 def find_dirty_regions(port, baud, images, settings, chip):
     """Returns [(addr, bytes)] that need writing, by asking the device."""
     t0 = time.time()
-    esp = cmds.detect_chip(port, esptool.loader.ESPLoader.ESP_ROM_BAUD)
+    esp = connect(port)
     try:
         esp = esp.run_stub()
         if baud > esp._port.baudrate:
@@ -149,11 +185,12 @@ def write_regions(port, baud, regions, settings, chip, after="hard_reset"):
             "--flash_freq", settings["flash_freq"],
             "--flash_size", settings["flash_size"],
         ] + pairs
-        subprocess.run([sys.executable, "-m", "esptool"] + argv, check=True)
+        env = dict(os.environ, ESPTOOL_OPEN_PORT_ATTEMPTS="5")
+        subprocess.run([sys.executable, "-m", "esptool"] + argv, check=True, env=env)
 
 
 def reset_only(port, chip):
-    esp = cmds.detect_chip(port, esptool.loader.ESPLoader.ESP_ROM_BAUD)
+    esp = connect(port)
     try:
         esp.hard_reset()
     finally:
@@ -175,6 +212,11 @@ def main():
         if len(found) != 1:
             sys.exit("quickflash: can't find exactly one Tangara; pass -p PORT")
         port = found[0]
+
+    busy = other_flashers()
+    if busy:
+        sys.exit("quickflash: something else seems to be using the device; "
+                 "wait for it to finish:\n  " + "\n  ".join(busy))
 
     t_start = time.time()
     if not args.no_build:
