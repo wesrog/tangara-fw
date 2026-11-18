@@ -34,6 +34,7 @@ static constexpr char kKeyOutput[] = "out";
 static constexpr char kKeyBrightness[] = "bright";
 static constexpr char kKeyTextToSpeech[] = "tts";
 static constexpr char kKeyInterfaceTheme[] = "ui_theme";
+static constexpr char kKeyInterfaceSplash[] = "ui_splash";
 static constexpr char kKeyAmpMaxVolume[] = "hp_vol_max";
 static constexpr char kKeyAmpCurrentVolume[] = "hp_vol";
 static constexpr char kKeyAmpLeftBias[] = "hp_bias";
@@ -290,6 +291,7 @@ NvsStorage::NvsStorage(nvs_handle_t handle)
       haptics_mode_(kKeyHaptics),
       long_text_mode_{kKeyLongText},
       theme_{kKeyInterfaceTheme},
+      splash_colours_{kKeyInterfaceSplash},
       bt_preferred_(kKeyBluetoothPreferred),
       bt_names_(kKeyBluetoothNames),
       db_auto_index_(kKeyDbAutoIndex),
@@ -325,6 +327,7 @@ auto NvsStorage::Read() -> void {
   haptics_mode_.read(handle_);
   long_text_mode_.read(handle_);
   theme_.read(handle_);
+  splash_colours_.read(handle_);
   bt_preferred_.read(handle_);
   bt_names_.read(handle_);
   db_auto_index_.read(handle_);
@@ -355,6 +358,7 @@ auto NvsStorage::Write() -> bool {
   haptics_mode_.write(handle_);
   long_text_mode_.write(handle_);
   theme_.write(handle_);
+  splash_colours_.write(handle_);
   bt_preferred_.write(handle_);
   bt_names_.write(handle_);
   db_auto_index_.write(handle_);
@@ -617,6 +621,16 @@ auto NvsStorage::InterfaceTheme() -> std::optional<std::string> {
 auto NvsStorage::InterfaceTheme(std::string themeFile) -> void {
   std::lock_guard<std::mutex> lock{mutex_};
   theme_.set(themeFile);
+}
+
+auto NvsStorage::InterfaceSplashColours() -> std::optional<std::string> {
+  std::lock_guard<std::mutex> lock{mutex_};
+  return splash_colours_.get();
+}
+
+auto NvsStorage::InterfaceSplashColours(std::string colours) -> void {
+  std::lock_guard<std::mutex> lock{mutex_};
+  splash_colours_.set(colours);
 }
 
 auto NvsStorage::ScrollSensitivity() -> uint_fast8_t {

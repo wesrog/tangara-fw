@@ -91,6 +91,9 @@ static auto load_theme(lua_State* L) -> int {
     ui::themes::Theme::instance()->Reset();
     set_theme(L);
     instance->services().nvs().InterfaceTheme(filename);
+    if (auto colours = ui::themes::Theme::instance()->RootColours()) {
+      instance->services().nvs().InterfaceSplashColours(*colours);
+    }
     lua_pushboolean(L, true);
   } else {
     lua_pushboolean(L, false);

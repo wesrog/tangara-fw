@@ -390,7 +390,7 @@ void UiState::react(const internal::InitDisplay& ev) {
   init_data.pad = ev.nvs.DisplayLeftPadding();
   sDisplay.reset(drivers::Display::Create(ev.gpios, init_data));
 
-  sCurrentScreen.reset(new screens::Splash());
+  sCurrentScreen.reset(new screens::Splash(ev.nvs));
 
   // Display will only actually come on after LVGL finishes its first flush.
   sDisplay->SetDisplayOn(!ev.gpios.IsLocked());
