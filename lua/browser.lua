@@ -100,7 +100,7 @@ return screen:new {
           end
         end
       end,
-      -- Holding the bottom of the click wheel plays the highlighted item
+      -- Tapping the bottom of the click wheel plays the highlighted item
       -- straight away. Albums, artists, etc. play all of their contents.
       play_callback = function(item, index, base)
         return function()

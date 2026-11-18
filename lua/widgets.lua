@@ -315,19 +315,22 @@ function widgets.IconBtn(parent, icon, text)
   return btn
 end
 
--- Actions for playing a list item immediately (e.g. by holding the bottom of
+-- Actions for playing a list item immediately (e.g. by tapping the bottom of
 -- the click wheel), keyed by the item's button. Weak keys, so that deleted
 -- buttons don't leak.
 widgets.play_actions = setmetatable({}, { __mode = "k" })
 
 -- Plays the currently focused list item, if it supports being played.
+-- Returns true if it did.
 function widgets.play_focused()
   local group = lvgl.group.get_default()
   local focused = group and group:get_focused()
   local action = focused and widgets.play_actions[focused]
   if action then
     action()
+    return true
   end
+  return false
 end
 
 -- List rows' jump-by-letter actions, keyed by row. Weak keys, so that rows can
