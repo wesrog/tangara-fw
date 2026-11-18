@@ -549,6 +549,7 @@ auto TrackQueue::random(bool en) -> void {
       if (repeatMode_ != RepeatMode::REPEAT_QUEUE) {
         repeatMode_ = RepeatMode::REPEAT_QUEUE;
         nvs_.QueueRepeatMode(repeatMode_);
+        events::Audio().Dispatch(internal::WriteSettings{});
       }
     } else {
       shuffle_.reset();
@@ -574,6 +575,9 @@ auto TrackQueue::repeatMode(RepeatMode mode) -> void {
     }
   }
   nvs_.QueueRepeatMode(repeatMode_);
+  // Save it to flash now, rather than waiting for the device to go idle, so
+  // that a reboot or a flat battery doesn't bring back an old mode.
+  events::Audio().Dispatch(internal::WriteSettings{});
   notifyChanged(false, Reason::kExplicitUpdate);
 }
 
@@ -655,8 +659,9 @@ cppbor::ParseClient* TrackQueue::QueueParseClient::item(
         // serialising
         position_to_set_ = val;
       } else if (i_ == 1) {
-        // Second value == repeat mode
-        queue_.repeatMode_ = static_cast<RepeatMode>(val);
+        // Second value == repeat mode. This copy is only saved when the queue
+        // is, so it can be older than the one in NVS, which is saved whenever
+        // it changes. Keep the NVS value.
       }
       i_++;
     } else if (item->type() == cppbor::TSTR) {
@@ -719,6 +724,11 @@ auto TrackQueue::deserialise(const std::string& s) -> void {
   QueueParseClient client{*this};
   const uint8_t* data = reinterpret_cast<const uint8_t*>(s.data());
   cppbor::parse(data, data + s.size(), &client);
+  // Shuffle always goes with repeat-all (see random()). If the saved repeat
+  // mode says otherwise, the shuffle state is from an older save, so drop it.
+  if (repeatMode_ != RepeatMode::REPEAT_QUEUE) {
+    shuffle_.reset();
+  }
   notifyChanged(true, Reason::kDeserialised);
 }
 
