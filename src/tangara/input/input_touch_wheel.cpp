@@ -50,7 +50,6 @@ TouchWheel::TouchWheel(drivers::NvsStorage& nvs,
       is_scrolling_(false),
       last_scroll_us_(0),
       scroller_(),
-      last_wheel_touch_time_(0),
       was_touched_(false),
       touch_down_pos_(0),
       touch_down_us_(0),
@@ -155,7 +154,8 @@ auto TouchWheel::read(lv_indev_data_t* data,
       hold_ok_ = false;
     }
   }
-  if ((touched || released) && now_us - touch_down_us_ > kMaxTapUs) {
+  if ((touched || released) &&
+      last_raw_touch_us_ - touch_down_us_ > kMaxTapUs) {
     // Resting on the wheel for a while isn't a tap. (It may be a hold.)
     tap_ok_ = false;
   }
@@ -180,26 +180,25 @@ auto TouchWheel::read(lv_indev_data_t* data,
     data->enc_diff = 0;
   }
 
-  // Prevent accidental center button touches while scrolling
-  if (wheel_data.is_wheel_touched) {
-    last_wheel_touch_time_ = now_us;
+  if (is_scrolling_) {
+    last_scroll_us_ = now_us;
   }
 
-  bool wheel_touch_timed_out =
-      now_us - last_wheel_touch_time_ > SCROLL_TIMEOUT_US;
-
-  auto centre_state =
-      centre_.update(wheel_touch_timed_out && wheel_data.is_button_touched &&
-                         !wheel_data.is_wheel_touched,
-                     data);
+  // Prevent accidental center button touches while scrolling.
+  const bool centre_pressed = wheel_data.is_button_touched &&
+                              !wheel_data.is_wheel_touched &&
+                              now_us - last_scroll_us_ > kCentreAfterScrollUs;
+  auto centre_state = centre_.update(centre_pressed, data);
   if (centre_state == input::Trigger::State::kPress) {
     events.push_back(InputEvent::kOnPress);
   } else if (centre_state == input::Trigger::State::kLongPress) {
     events.push_back(InputEvent::kOnLongPress);
   }
-
-  if (is_scrolling_) {
-    last_scroll_us_ = now_us;
+  if (!centre_pressed) {
+    // Each press stands alone. Without this, a second press within the
+    // double-click delay is reported as a double-click, which the centre has
+    // no action for, so the press is lost.
+    centre_.cancel();
   }
 
   // Edge taps and holds. Only the edge the touch landed on is ever pressed,
