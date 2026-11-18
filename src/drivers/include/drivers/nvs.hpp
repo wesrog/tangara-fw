@@ -143,6 +143,12 @@ class NvsStorage {
   auto InterfaceTheme() -> std::optional<std::string>;
   auto InterfaceTheme(std::string) -> void;
 
+  // Colours of the active theme, cached so that the boot splash can use them
+  // before Lua (and the theme file) has loaded. Format: "bg grad text", each
+  // a 6 digit hex RGB value; grad equals bg for themes without a gradient.
+  auto InterfaceSplashColours() -> std::optional<std::string>;
+  auto InterfaceSplashColours(std::string) -> void;
+
   auto ScrollSensitivity() -> uint_fast8_t;
   auto ScrollSensitivity(uint_fast8_t) -> void;
 
@@ -220,6 +226,7 @@ class NvsStorage {
   Setting<uint8_t> long_text_mode_;
 
   Setting<std::string> theme_;
+  Setting<std::string> splash_colours_;
 
   Setting<bluetooth::MacAndName> bt_preferred_;
   Setting<std::vector<bluetooth::MacAndName>> bt_names_;

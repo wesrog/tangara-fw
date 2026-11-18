@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cstdio>
 #include <map>
 #include <optional>
 #include <string>
@@ -32,6 +33,11 @@ class Theme {
   void AddStyle(std::string key, int selector, lv_style_t* style);
 
   void Reset();
+
+  // The root background, gradient and text colours of the loaded theme,
+  // encoded as "bg grad text" hex triplets for NvsStorage. Empty if the
+  // theme has no root style.
+  auto RootColours() -> std::optional<std::string>;
 
   static auto instance() -> Theme*;
 

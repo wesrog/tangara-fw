@@ -82,6 +82,45 @@ void Theme::ApplyStyle(lv_obj_t* obj, std::string style_key) {
   }
 }
 
+auto Theme::RootColours() -> std::optional<std::string> {
+  auto search = style_map.find("root");
+  if (search == style_map.end()) {
+    return {};
+  }
+  bool has_bg = false, has_grad = false, has_text = false;
+  lv_color_t bg{}, grad{}, text{};
+  for (const auto& [selector, style] : search->second) {
+    if (selector != LV_PART_MAIN) {
+      continue;
+    }
+    lv_style_value_t v;
+    if (lv_style_get_prop(style, LV_STYLE_BG_COLOR, &v) == LV_STYLE_RES_FOUND) {
+      bg = v.color;
+      has_bg = true;
+    }
+    if (lv_style_get_prop(style, LV_STYLE_BG_GRAD_COLOR, &v) == LV_STYLE_RES_FOUND) {
+      grad = v.color;
+      has_grad = true;
+    }
+    if (lv_style_get_prop(style, LV_STYLE_TEXT_COLOR, &v) == LV_STYLE_RES_FOUND) {
+      text = v.color;
+      has_text = true;
+    }
+  }
+  if (!has_bg || !has_text) {
+    return {};
+  }
+  if (!has_grad) {
+    grad = bg;
+  }
+  char buf[24];
+  snprintf(buf, sizeof(buf), "%06lx %06lx %06lx",
+           static_cast<unsigned long>(lv_color_to_u32(bg) & 0xFFFFFF),
+           static_cast<unsigned long>(lv_color_to_u32(grad) & 0xFFFFFF),
+           static_cast<unsigned long>(lv_color_to_u32(text) & 0xFFFFFF));
+  return std::string{buf};
+}
+
 void Theme::Reset() {
   style_map.clear();
 }
