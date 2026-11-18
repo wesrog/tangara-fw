@@ -35,7 +35,27 @@ WheelScroller::WheelScroller()
       pending_reverse_(0),
       speed_(0),
       travel_(0),
-      first_move_(false) {}
+      first_move_(false),
+      jump_allowed_(false),
+      jumping_(false),
+      jump_accum_(0),
+      jumps_(0),
+      jump_ended_(false) {}
+
+auto WheelScroller::setJumpAllowed(bool allowed) -> void {
+  jump_allowed_ = allowed;
+}
+
+auto WheelScroller::endJump() -> void {
+  jumping_ = false;
+  jump_ended_ = true;
+  jump_accum_ = 0;
+  // Carry on scrolling item by item from here, starting afresh.
+  accum_x16_ = 0;
+  pending_reverse_ = 0;
+  travel_ = 0;
+  first_move_ = false;
+}
 
 auto WheelScroller::setStep(int units) -> void {
   step_x16_ = std::clamp(units, kMinStep, kMaxStep) * kSubUnits;
@@ -60,8 +80,17 @@ auto WheelScroller::gainX16() const -> int {
 auto WheelScroller::update(bool touched,
                            uint8_t position,
                            uint64_t now_us) -> int {
+  jumps_ = 0;
+  jump_ended_ = false;
+  if (jumping_ && !jump_allowed_) {
+    endJump();
+  }
+
   if (!touched) {
     touching_ = false;
+    if (jumping_) {
+      endJump();
+    }
     return 0;
   }
 
@@ -124,6 +153,14 @@ auto WheelScroller::update(bool touched,
     speed_ = (speed_ + instant) / 2;
   }
 
+  if (jumping_) {
+    // Once jumping, keep jumping (at any speed) until the finger lifts.
+    jump_accum_ += movement;
+    jumps_ = jump_accum_ / kJumpStep;
+    jump_accum_ -= jumps_ * kJumpStep;
+    return 0;
+  }
+
   int direction = sign(accum_x16_);
   if (direction != 0 && sign(movement) != direction) {
     // Moving against the current direction. Small wobbles are absorbed;
@@ -156,6 +193,18 @@ auto WheelScroller::update(bool touched,
   }
 
   travel_ += std::abs(movement);
+
+  if (jump_allowed_ && travel_ >= kJumpMinTravel &&
+      speed_ >= kJumpStartSpeed) {
+    // Spinning fast through a long list. Jump straight away, so that it's
+    // obvious the wheel has changed mode.
+    jumping_ = true;
+    jump_accum_ = 0;
+    accum_x16_ = 0;
+    jumps_ = sign(movement);
+    return 0;
+  }
+
   accum_x16_ += movement * gainX16();
 
   int ticks = accum_x16_ / step_x16_;
