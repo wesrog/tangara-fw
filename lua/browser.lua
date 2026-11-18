@@ -58,42 +58,11 @@ return screen:new {
       }
     end
 
+    -- Play, shuffle or queue the whole list from the hold-centre menu on any
+    -- row, rather than from buttons that are only reachable at the very top.
+    local whole_list = nil
     if (self.mediatype == database.MediaTypes.Music or self.mediatype == database.MediaTypes.Any) then
-      local buttons = header:Object({
-        flex = {
-          flex_direction = "row",
-          flex_wrap = "wrap",
-          justify_content = "space-between",
-          align_items = "center",
-          align_content = "center"
-        },
-        w = lvgl.PCT(100),
-        h = lvgl.SIZE_CONTENT,
-        pad_column = 4
-      })
-      local original_iterator = self.iterator:clone()
-      local enqueue = widgets.IconBtn(buttons, img.enqueue, "Enqueue")
-      enqueue:onClicked(function()
-        queue.add(original_iterator)
-        playback.playing:set(true)
-      end)
-      local shuffle_play = widgets.IconBtn(buttons, img.shuffleplay, "Shuffle")
-      shuffle_play:onClicked(function()
-        queue.clear()
-        queue.random:set(true)
-        queue.add(original_iterator)
-        playback.playing:set(true)
-        backstack.push(playing:new())
-      end)
-      -- enqueue:add_flag(lvgl.FLAG.HIDDEN)
-      local play = widgets.IconBtn(buttons, img.play_small, "Play")
-      play:onClicked(function()
-        queue.clear()
-        queue.random:set(false)
-        queue.add(original_iterator)
-        playback.playing:set(true)
-        backstack.push(playing:new())
-      end)
+      whole_list = self.iterator:clone()
     end
 
     local get_icon_func = nil
@@ -171,7 +140,9 @@ return screen:new {
       context_callback = function(item)
         return function()
           backstack.push(require("context_menu"):new {
-            item = item
+            item = item,
+            list = whole_list,
+            list_title = self.breadcrumb or self.title,
           })
         end
       end

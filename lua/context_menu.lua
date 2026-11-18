@@ -65,5 +65,37 @@ return screen:new {
       backstack.pop()
     end)
     queue_btn:add_style(styles.list_item)
+
+    -- Actions for the whole list the item is in, so they're reachable from
+    -- anywhere in a long list.
+    if self.list then
+      local heading = menu_items:add_text(self.list_title or "Whole list")
+      heading:set { text_font = font.fusion_10 }
+
+      local play_list = function(shuffle)
+        queue.clear()
+        queue.random:set(shuffle)
+        queue.add(self.list)
+        playback.playing:set(true)
+        backstack.pop()
+        require("playing"):push_if_not_shown()
+      end
+
+      local play_all_btn = menu_items:add_btn(nil, "Play All")
+      play_all_btn:onClicked(function() play_list(false) end)
+      play_all_btn:add_style(styles.list_item)
+
+      local shuffle_all_btn = menu_items:add_btn(nil, "Shuffle All")
+      shuffle_all_btn:onClicked(function() play_list(true) end)
+      shuffle_all_btn:add_style(styles.list_item)
+
+      local queue_all_btn = menu_items:add_btn(nil, "Queue All")
+      queue_all_btn:onClicked(function()
+        widgets.PopUp("Added to Queue")
+        queue.add(self.list)
+        backstack.pop()
+      end)
+      queue_all_btn:add_style(styles.list_item)
+    end
   end
 }
