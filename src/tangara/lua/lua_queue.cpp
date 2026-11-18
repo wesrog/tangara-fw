@@ -129,14 +129,18 @@ static auto queue_play_from(lua_State* state) -> int {
 static auto queue_entries(lua_State* state) -> int {
   lua_Integer first = luaL_checkinteger(state, 1);
   lua_Integer count = luaL_checkinteger(state, 2);
+  // Bridge::Get pushes a value onto the stack, so get it before creating the
+  // result table; otherwise the entries below would be stored into that value
+  // instead of the table (corrupting the Lua heap), and it would be returned.
+  Bridge* instance = Bridge::Get(state);
   lua_newtable(state);
+  const int result = lua_gettop(state);
   if (first < 1 || count < 1) {
     return 1;
   }
   // Keep each call small; the list asks for a screenful at a time.
   count = std::min<lua_Integer>(count, 32);
 
-  Bridge* instance = Bridge::Get(state);
   audio::TrackQueue& queue = instance->services().track_queue();
   auto paths = queue.entries(first - 1, count);
   auto db = instance->services().database().lock();
@@ -174,8 +178,9 @@ static auto queue_entries(lua_State* state) -> int {
       lua_setfield(state, -2, "artist");
     }
 
-    lua_rawseti(state, -2, ++i);
+    lua_rawseti(state, result, ++i);
   }
+  lua_settop(state, result);
   return 1;
 }
 
