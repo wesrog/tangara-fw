@@ -36,18 +36,24 @@ class TouchWheel : public IInputDevice {
   auto onUnlock() -> void override;
 
  private:
-  const int64_t SCROLL_TIMEOUT_US = 250000;  // 250ms
+  // The centre button ignores presses this soon after the wheel scrolled, so
+  // that a thumb sweeping past it mid-scroll doesn't select anything.
+  static constexpr int64_t kCentreAfterScrollUs = 150'000;
 
   // How far (in wheel units, 256 per revolution) the finger may drift while
   // tapping one of the wheel's edges before the touch stops counting as a tap.
-  static constexpr int kTapSlop = 4;
+  static constexpr int kTapSlop = 6;
   // Taps must land this close (in wheel units) to the middle of an edge. This
   // leaves dead zones between the edges, where a tap never triggers anything.
-  static constexpr int kTapZone = 24;
-  // Touches longer than this aren't taps (this includes kReleaseGraceUs).
-  static constexpr int64_t kMaxTapUs = 300'000;
-  // Touches that start this soon after scrolling aren't taps.
-  static constexpr int64_t kTapAfterScrollUs = 500'000;
+  static constexpr int kTapZone = 28;
+  // Touches longer than this aren't taps. It matches the long-press delay, so
+  // that every press is either a tap or a hold, with no gap in between where
+  // nothing happens. Measured to when the finger last touched, not to the
+  // end of kReleaseGraceUs.
+  static constexpr int64_t kMaxTapUs = 400'000;
+  // Touches that start this soon after scrolling aren't taps, since they're
+  // probably the next stroke of the scroll.
+  static constexpr int64_t kTapAfterScrollUs = 200'000;
   // Holds are much harder to trigger by accident than taps (the finger has to
   // stay put for the whole long-press delay), so they're more forgiving. A
   // hold may land anywhere in an edge's quarter of the wheel, start straight
@@ -81,7 +87,6 @@ class TouchWheel : public IInputDevice {
   bool is_scrolling_;
   int64_t last_scroll_us_;
   WheelScroller scroller_;
-  int64_t last_wheel_touch_time_;
   bool was_touched_;
   uint8_t touch_down_pos_;
   int64_t touch_down_us_;
