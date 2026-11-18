@@ -48,6 +48,7 @@ return screen:new {
 
     self.status_bar = widgets.StatusBar(self, {
       back_cb = backstack.pop,
+      title = "Now Playing",
       transparent_bg = true,
     })
 
