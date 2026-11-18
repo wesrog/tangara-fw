@@ -17,6 +17,7 @@ local playback = require("playback")
 local usb = require("usb")
 
 return widgets.MenuScreen:new {
+  title = "Tangara",
   create_ui = function(self)
     widgets.MenuScreen.create_ui(self)
 

@@ -29,34 +29,12 @@ return screen:new {
     })
     self.root:center()
 
+    -- One title bar, showing the most specific name we have: the folder,
+    -- album, artist etc. being browsed, or else the name of the list.
     self.status_bar = widgets.StatusBar(self, {
       back_cb = backstack.pop,
-      title = self.title
+      title = self.breadcrumb and self.breadcrumb or self.title
     })
-
-    local header = self.root:Object {
-      flex = {
-        flex_direction = "column",
-        flex_wrap = "wrap",
-        justify_content = "flex-start",
-        align_items = "flex-start",
-        align_content = "flex-start"
-      },
-      w = lvgl.HOR_RES(),
-      h = lvgl.SIZE_CONTENT,
-      pad_left = 4,
-      pad_right = 4,
-      pad_bottom = 2,
-      scrollbar_mode = lvgl.SCROLLBAR_MODE.OFF
-    }
-    theme.set_subject(header, "header")
-
-    if self.breadcrumb then
-      header:Label {
-        text = self.breadcrumb,
-        text_font = font.fusion_10
-      }
-    end
 
     -- Play, shuffle or queue the whole list from the hold-centre menu on any
     -- row, rather than from buttons that are only reachable at the very top.

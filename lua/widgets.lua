@@ -128,6 +128,11 @@ local function start_spinners()
   spinner_timer:resume()
 end
 
+-- The last part of a file path, e.g. "Album" for "/Music/Artist/Album/".
+function widgets.LastPathPart(path)
+  return string.match(path, "([^/]+)/*$") or path
+end
+
 function widgets.StatusBar(parent, opts)
   local root = parent.root:Object {
     flex = {
