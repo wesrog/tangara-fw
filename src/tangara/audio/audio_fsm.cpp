@@ -194,6 +194,11 @@ void AudioState::react(const QueueUpdate& ev) {
       return;
   }
 
+  ESP_LOGW("qdbg", "QueueUpdate reason=%d changed=%d -> %s",
+           static_cast<int>(ev.reason), ev.current_changed,
+           std::holds_alternative<std::string>(cmd.new_track)
+               ? std::get<std::string>(cmd.new_track).c_str()
+               : "(not a path)");
   tinyfsm::FsmList<AudioState>::dispatch(cmd);
 }
 
@@ -221,6 +226,11 @@ void AudioState::react(const SetTrack& ev) {
     // This has the effect of stopping the current playback, which is generally
     // what the user expects to happen when they say "Play this track!", even
     // if the new track has an issue.
+    ESP_LOGW("qdbg", "SetTrack open %s seek=%lu ok=%d",
+             std::holds_alternative<std::string>(new_track)
+                 ? std::get<std::string>(new_track).c_str()
+                 : "(id)",
+             (unsigned long)seek_to, stream != nullptr);
     sDecoder->open(stream);
 
     if (stream) {
@@ -286,6 +296,8 @@ void AudioState::react(const internal::DecodingFinished& ev) {
       auto tid = std::get<database::TrackId>(current);
       path = db->getTrackPath(tid).value_or("");
     }
+    ESP_LOGW("qdbg", "DecodingFinished uri=%s current=%s match=%d",
+             ev.track->uri.c_str(), path.c_str(), path == ev.track->uri);
     if (path == ev.track->uri) {
       queue.finish();
       incrementPlayCount(ev.track->uri);
