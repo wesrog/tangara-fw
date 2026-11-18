@@ -7,6 +7,7 @@
 #include "audio/audio_events.hpp"
 #include "lua/lua_database.hpp"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 
@@ -122,12 +123,69 @@ static auto queue_play_from(lua_State* state) -> int {
   return 0;
 }
 
+// queue.entries(first, count): up to `count` tracks from the queue, starting
+// at position `first` (1-based, like queue.position). Each is a table with the
+// track's `position`, `path`, and `title` (and `artist`, if known).
+static auto queue_entries(lua_State* state) -> int {
+  lua_Integer first = luaL_checkinteger(state, 1);
+  lua_Integer count = luaL_checkinteger(state, 2);
+  lua_newtable(state);
+  if (first < 1 || count < 1) {
+    return 1;
+  }
+  // Keep each call small; the list asks for a screenful at a time.
+  count = std::min<lua_Integer>(count, 32);
+
+  Bridge* instance = Bridge::Get(state);
+  audio::TrackQueue& queue = instance->services().track_queue();
+  auto paths = queue.entries(first - 1, count);
+  auto db = instance->services().database().lock();
+
+  lua_Integer i = 0;
+  for (const auto& path : paths) {
+    lua_createtable(state, 0, 4);
+
+    lua_pushinteger(state, first + i);
+    lua_setfield(state, -2, "position");
+    lua_pushlstring(state, path.data(), path.size());
+    lua_setfield(state, -2, "path");
+
+    std::shared_ptr<database::Track> track;
+    if (db) {
+      auto id = db->getTrackID(path);
+      if (id) {
+        track = db->getTrack(*id);
+      }
+    }
+    const auto* title = track ? &track->tags().title() : nullptr;
+    if (title && *title) {
+      lua_pushlstring(state, (*title)->data(), (*title)->size());
+    } else {
+      // Not in the database (e.g. from a playlist file); use the file name.
+      auto slash = path.find_last_of('/');
+      std::string name =
+          slash == std::string::npos ? path : path.substr(slash + 1);
+      lua_pushlstring(state, name.data(), name.size());
+    }
+    lua_setfield(state, -2, "title");
+    if (track && track->tags().artist()) {
+      const auto& artist = *track->tags().artist();
+      lua_pushlstring(state, artist.data(), artist.size());
+      lua_setfield(state, -2, "artist");
+    }
+
+    lua_rawseti(state, -2, ++i);
+  }
+  return 1;
+}
+
 static const struct luaL_Reg kQueueFuncs[] = {
     {"add", queue_add},
     {"clear", queue_clear},
     {"open_playlist", queue_open_playlist},
     {"save_to_playlist", queue_save_to_playlist},
     {"play_from", queue_play_from},
+    {"entries", queue_entries},
     {NULL, NULL}};
 
 static auto lua_queue(lua_State* state) -> int {

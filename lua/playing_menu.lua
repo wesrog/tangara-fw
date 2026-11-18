@@ -64,6 +64,12 @@ return screen:new {
       flex_grow = 1,
     })
 
+    local queue_btn = menu_items:add_btn(nil, "Queue")
+    queue_btn:onClicked(function()
+      backstack.push(require("queue_list"):new())
+    end)
+    queue_btn:add_style(styles.list_item)
+
     local info_btn = menu_items:add_btn(nil, "Track Info")
     info_btn:onClicked(function()
       backstack.push(track_info:new())

@@ -6,6 +6,7 @@
 #include "playlist.hpp"
 #include <stdint.h>
 
+#include <algorithm>
 #include <string>
 
 #include "cppbor.h"
@@ -121,6 +122,37 @@ auto Playlist::peekNext() -> std::optional<std::string> {
   if (f_lseek(&file_, offset) != FR_OK) {
     file_error_ = true;
   }
+  return res;
+}
+
+auto Playlist::valuesAt(size_t start, size_t count)
+    -> std::vector<std::string> {
+  std::unique_lock<std::mutex> lock(mutex_);
+  std::vector<std::string> res;
+  if (!file_open_ || file_error_ || start >= total_size_) {
+    return res;
+  }
+  count = std::min(count, total_size_ - start);
+  res.reserve(count);
+
+  // Remember where we are, so that playback isn't disturbed.
+  auto offset = f_tell(&file_);
+  auto pos = pos_;
+  auto value = current_value_;
+
+  skipToLocked(start);
+  for (size_t i = 0; i < count && !file_error_; i++) {
+    if (i > 0 && !advanceBy(1)) {
+      break;
+    }
+    res.push_back(current_value_);
+  }
+
+  if (f_lseek(&file_, offset) != FR_OK) {
+    file_error_ = true;
+  }
+  pos_ = pos;
+  current_value_ = value;
   return res;
 }
 

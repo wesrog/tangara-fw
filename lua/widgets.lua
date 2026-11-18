@@ -692,6 +692,22 @@ function widgets.InfiniteList(parent, iterator, opts)
     end
     add_item(val, idx, { focus = (opts.focus_first_item and idx == 0) })
   end
+  -- Lists that start part way through (e.g. the queue, at the current track)
+  -- can show a few rows above the first one, so that it's possible to scroll
+  -- back from it.
+  if opts.rows_above then
+    refreshing = true
+    for _ = 1, opts.rows_above do
+      local to_add = bck_iterator:value()
+      if not to_add then
+        break
+      end
+      bck_iterator:prev()
+      add_item(to_add, first_index - 1)
+    end
+    refreshing = false
+    refresh_group()
+  end
 
   return infinite_list
 end

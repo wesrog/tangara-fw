@@ -99,6 +99,12 @@ class TrackQueue {
   auto updateShuffler(bool andUpdatePosition) -> void;
 
   /*
+   * Up to `count` file paths from the queue, starting at `first` (0-based),
+   * in queue order. Doesn't change what's playing.
+   */
+  auto entries(size_t first, size_t count) -> std::vector<std::string>;
+
+  /*
    * Advances to the next track in the queue, placing the current track at the
    * front of the 'played' queue.
    */

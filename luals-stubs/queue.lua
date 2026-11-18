@@ -49,4 +49,13 @@ function queue.previous() end
 --- @param seconds_offset integer 
 function queue.play_from(filepath, seconds_offset) end
 
+--- Returns up to `count` tracks from the queue, in queue order, starting at
+--- position `first` (1-based, like `queue.position`). Each is a table with
+--- `position`, `path` and `title` fields, and `artist` when it's known. At most
+--- 32 are returned per call.
+--- @param first integer
+--- @param count integer
+--- @return table[]
+function queue.entries(first, count) end
+
 return queue
