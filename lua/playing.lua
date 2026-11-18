@@ -194,13 +194,55 @@ return screen:new {
 
     controls:Object({ flex_grow = 1, h = 1 }) -- spacer
 
-    local repeat_btn = controls:Button {}
-    repeat_btn:onClicked(function()
-      queue.repeat_mode:set((queue.repeat_mode:get() + 1) % 3)
+    -- One button for the play mode, cycling through In order, Repeat all,
+    -- Repeat one and Shuffle. Shuffle carries on forever.
+    local current_mode = function()
+      if queue.random:get() then return "shuffle" end
+      local r = queue.repeat_mode:get()
+      if r == queue.RepeatMode.REPEAT_QUEUE then return "repeat_all" end
+      if r == queue.RepeatMode.REPEAT_TRACK then return "repeat_one" end
+      return "in_order"
+    end
+    local next_mode = {
+      in_order = "repeat_all",
+      repeat_all = "repeat_one",
+      repeat_one = "shuffle",
+      shuffle = "in_order",
+    }
+    local set_mode = function(mode)
+      if mode == "shuffle" then
+        queue.repeat_mode:set(queue.RepeatMode.REPEAT_QUEUE)
+        queue.random:set(true)
+        return
+      end
+      queue.random:set(false)
+      if mode == "repeat_all" then
+        queue.repeat_mode:set(queue.RepeatMode.REPEAT_QUEUE)
+      elseif mode == "repeat_one" then
+        queue.repeat_mode:set(queue.RepeatMode.REPEAT_TRACK)
+      else
+        queue.repeat_mode:set(queue.RepeatMode.OFF)
+      end
+    end
+    local mode_icons = {
+      in_order = { img.repeat_off, "Play in order" },
+      repeat_all = { img.repeat_queue, "Repeat all" },
+      repeat_one = { img.repeat_track, "Repeat one" },
+      shuffle = { img.shuffle, "Shuffle" },
+    }
+
+    local mode_btn = controls:Button {}
+    mode_btn:onClicked(function()
+      set_mode(next_mode[current_mode()])
     end)
-    local repeat_img = repeat_btn:Image { src = img.repeat_off }
-    theme.set_subject(repeat_btn, icon_enabled_class)
-    local repeat_desc = widgets.Description(repeat_btn)
+    local mode_img = mode_btn:Image { src = img.repeat_off }
+    theme.set_subject(mode_btn, icon_enabled_class)
+    local mode_desc = widgets.Description(mode_btn)
+    local update_mode = function()
+      local icon = mode_icons[current_mode()]
+      mode_img:set_src(icon[1])
+      mode_desc:set { text = icon[2] }
+    end
 
 
     local prev_btn = controls:Button {}
@@ -233,14 +275,6 @@ return screen:new {
     local next_img = next_btn:Image { src = img.next }
     theme.set_subject(next_btn, icon_disabled_class)
     local next_desc = widgets.Description(next_btn, "Next track")
-
-    local shuffle_btn = controls:Button {}
-    shuffle_btn:onClicked(function()
-      queue.random:set(not queue.random:get())
-    end)
-    local shuffle_img = shuffle_btn:Image { src = img.shuffle }
-    theme.set_subject(shuffle_btn, icon_enabled_class)
-    local shuffle_desc = widgets.Description(shuffle_btn)
 
     local menu_btn = controls:Button {}
     menu_btn:onClicked(function()
@@ -321,28 +355,8 @@ return screen:new {
           next_btn, can_next and icon_enabled_class or icon_disabled_class
         )
       end),
-      queue.random:bind(function(shuffling)
-        theme.set_subject(shuffle_btn, shuffling and icon_enabled_class or icon_disabled_class)
-        if shuffling then
-          shuffle_img:set_src(img.shuffle)
-          shuffle_desc:set { text = "Disable shuffle" }
-        else
-          shuffle_img:set_src(img.shuffle_off)
-          shuffle_desc:set { text = "Enable shuffle" }
-        end
-      end),
-      queue.repeat_mode:bind(function(mode)
-        if mode == queue.RepeatMode.OFF then
-          repeat_img:set_src(img.repeat_off)
-          repeat_desc:set { text = "Repeat off" }
-        elseif mode == queue.RepeatMode.REPEAT_TRACK then
-          repeat_img:set_src(img.repeat_track)
-          repeat_desc:set { text = "Repeat track" }
-        elseif mode == queue.RepeatMode.REPEAT_QUEUE then
-          repeat_img:set_src(img.repeat_queue)
-          repeat_desc:set { text = "Repeat queue" }
-        end
-      end),
+      queue.random:bind(function() update_mode() end),
+      queue.repeat_mode:bind(function() update_mode() end),
       queue.size:bind(function(num)
         if not num then return end
         playlist_total:set { text = tostring(num) }

@@ -37,6 +37,11 @@ namespace audio {
 
 [[maybe_unused]] static constexpr char kTag[] = "tracks";
 
+// Playing on from a picked track queues this many tracks at a time...
+static constexpr size_t kPlayOnWindow = 100;
+// ...and queues the next lot once this few are left to play.
+static constexpr size_t kPlayOnTopUpAt = 20;
+
 using Reason = QueueUpdate::Reason;
 
 RandomIterator::RandomIterator() : seed_(0), pos_(0), size_(0) {}
@@ -262,12 +267,36 @@ auto TrackQueue::appendStartingWithFirst(database::TrackIterator it) -> void {
     const std::shared_lock<std::shared_mutex> lock(mutex_);
     was_queue_empty = currentPosition() >= totalSize();
   }
-  appendAsync(it, was_queue_empty, true);
+  appendAsync(it, was_queue_empty, true, kPlayOnWindow);
+}
+
+auto TrackQueue::maybeTopUp() -> void {
+  std::optional<database::TrackIterator> source;
+  {
+    const std::unique_lock<std::shared_mutex> lock(mutex_);
+    if (!topup_source_ || appending_async_) {
+      return;
+    }
+    size_t remaining;
+    if (shuffle_) {
+      remaining = shuffle_->size() - std::min(shuffle_->pos() + 1,
+                                              shuffle_->size());
+    } else {
+      remaining = totalSize() - std::min(position_ + 1, totalSize());
+    }
+    if (remaining > kPlayOnTopUpAt) {
+      return;
+    }
+    source = std::move(topup_source_);
+    topup_source_.reset();
+  }
+  appendAsync(*source, false, false, kPlayOnWindow);
 }
 
 auto TrackQueue::appendAsync(database::TrackIterator it,
                              bool was_empty,
-                             bool start_with_first) -> void {
+                             bool start_with_first,
+                             size_t limit) -> void {
   // First, check whether or not an async append is already running. Grab the
   // mutex first to avoid races where we check appending_async_ between the bg
   // task looking at pending_async_iterators_ and resetting appending_async_.
@@ -308,8 +337,15 @@ auto TrackQueue::appendAsync(database::TrackIterator it,
       batch.clear();
     };
 
+    size_t taken = 0;
     while (!cancel_appending_async_) {
       auto next = *it;
+      if (next && taken >= limit) {
+        // Queued a full window; keep the rest of the source for later.
+        const std::unique_lock<std::shared_mutex> lock(mutex_);
+        topup_source_ = it;
+        next.reset();
+      }
       if (!next) {
         flush();
         // The current iterator is out of tracks. Is there another iterator for
@@ -320,6 +356,8 @@ auto TrackQueue::appendAsync(database::TrackIterator it,
             // Yes. Grab it and continue.
             it = pending_async_iterators_.front();
             pending_async_iterators_.pop_front();
+            limit = SIZE_MAX;
+            taken = 0;
             continue;
           } else {
             // No, time to finish up.
@@ -342,6 +380,7 @@ auto TrackQueue::appendAsync(database::TrackIterator it,
       if (!filename.empty()) {
         batch.push_back(std::move(filename));
       }
+      taken++;
 
       it++;
 
@@ -445,6 +484,7 @@ auto TrackQueue::next(Reason r) -> void {
   }
 
   notifyChanged(changed, r);
+  maybeTopUp();
 }
 
 auto TrackQueue::previous() -> void {
@@ -488,6 +528,7 @@ auto TrackQueue::clear() -> void {
     ready_ = false;
     loading_ = false;
     pending_async_iterators_.clear();
+    topup_source_.reset();
     playlist_.clear();
     opened_playlist_.reset();
     if (shuffle_) {
@@ -502,6 +543,14 @@ auto TrackQueue::random(bool en) -> void {
     const std::unique_lock<std::shared_mutex> lock(mutex_);
     if (en) {
       shuffle_.emplace(totalSize());
+      // Shuffle is one of the UI's play modes and carries on forever. It also
+      // means repeat-track can't be on, which would mean the shuffle is never
+      // heard.
+      if (repeatMode_ != RepeatMode::REPEAT_QUEUE) {
+        repeatMode_ = RepeatMode::REPEAT_QUEUE;
+        nvs_.QueueRepeatMode(repeatMode_);
+        events::Audio().Dispatch(internal::WriteSettings{});
+      }
     } else {
       shuffle_.reset();
     }
@@ -517,8 +566,18 @@ auto TrackQueue::random() const -> bool {
 }
 
 auto TrackQueue::repeatMode(RepeatMode mode) -> void {
-  repeatMode_ = mode;
+  {
+    const std::unique_lock<std::shared_mutex> lock(mutex_);
+    repeatMode_ = mode;
+    // Likewise, choosing repeat-track turns shuffle off.
+    if (mode == RepeatMode::REPEAT_TRACK) {
+      shuffle_.reset();
+    }
+  }
   nvs_.QueueRepeatMode(repeatMode_);
+  // Save it to flash now, rather than waiting for the device to go idle, so
+  // that a reboot or a flat battery doesn't bring back an old mode.
+  events::Audio().Dispatch(internal::WriteSettings{});
   notifyChanged(false, Reason::kExplicitUpdate);
 }
 
@@ -600,8 +659,9 @@ cppbor::ParseClient* TrackQueue::QueueParseClient::item(
         // serialising
         position_to_set_ = val;
       } else if (i_ == 1) {
-        // Second value == repeat mode
-        queue_.repeatMode_ = static_cast<RepeatMode>(val);
+        // Second value == repeat mode. This copy is only saved when the queue
+        // is, so it can be older than the one in NVS, which is saved whenever
+        // it changes. Keep the NVS value.
       }
       i_++;
     } else if (item->type() == cppbor::TSTR) {
@@ -664,6 +724,11 @@ auto TrackQueue::deserialise(const std::string& s) -> void {
   QueueParseClient client{*this};
   const uint8_t* data = reinterpret_cast<const uint8_t*>(s.data());
   cppbor::parse(data, data + s.size(), &client);
+  // Shuffle always goes with repeat-all (see random()). If the saved repeat
+  // mode says otherwise, the shuffle state is from an older save, so drop it.
+  if (repeatMode_ != RepeatMode::REPEAT_QUEUE) {
+    shuffle_.reset();
+  }
   notifyChanged(true, Reason::kDeserialised);
 }
 
