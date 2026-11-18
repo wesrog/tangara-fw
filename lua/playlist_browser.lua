@@ -62,7 +62,7 @@ return screen:new {
             -- TODO: playlist viewer
             queue.open_playlist(item:filepath())
             playback.playing:set(true)
-            backstack.push(playing:new())
+            playing:push_if_not_shown()
           end
         end
       end

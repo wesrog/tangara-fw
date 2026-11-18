@@ -79,7 +79,7 @@ return screen:new {
         queue.add(base, index)
       end
       playback.playing:set(true)
-      backstack.push(playing:new())
+      playing:push_if_not_shown()
     end
 
     widgets.InfiniteList(self.root, self.iterator, {
@@ -100,7 +100,7 @@ return screen:new {
           end
         end
       end,
-      -- Holding the bottom of the click wheel plays the highlighted item
+      -- Tapping the bottom of the click wheel plays the highlighted item
       -- straight away. Albums, artists, etc. play all of their contents.
       play_callback = function(item, index, base)
         return function()
@@ -109,7 +109,7 @@ return screen:new {
             queue.clear()
             queue.add(contents)
             playback.playing:set(true)
-            backstack.push(playing:new())
+            playing:push_if_not_shown()
           else
             play_track(contents, index, base)
           end
