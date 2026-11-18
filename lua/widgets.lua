@@ -596,6 +596,41 @@ function widgets.InfiniteList(parent, iterator, opts)
     end
   end
 
+  -- While jumping, the rows follow the letter too, once the wheel pauses on it
+  -- for a moment. Rebuilding the rows on every jump would make fast spins
+  -- stutter, so they're only rebuilt after kPreviewDelayMs without a jump.
+  local kPreviewDelayMs = 200
+  local preview_timer = nil
+  local previewed = false -- Whether the rows already show `pending`.
+
+  -- Shows the rows starting at the letter we've jumped to, without ending
+  -- the jump.
+  local function show_pending()
+    if not pending then
+      return
+    end
+    local target = pending:clone()
+    -- See the comment in jump() about why the base sits before the target.
+    target:prev()
+    fill(target)
+    previewed = true
+  end
+
+  local function preview_after_pause()
+    previewed = false
+    if preview_timer then
+      preview_timer:delete()
+    end
+    preview_timer = lvgl.Timer {
+      period = kPreviewDelayMs,
+      cb = function(t)
+        t:pause()
+        -- The screen may have gone since; if so, do nothing.
+        pcall(show_pending)
+      end,
+    }
+  end
+
   jump = function(direction)
     if direction == nil then
       -- The finger has lifted. Stop showing the letter.
@@ -604,7 +639,13 @@ function widgets.InfiniteList(parent, iterator, opts)
     end
     if direction == 0 then
       -- The spin has slowed down. Land on the letter we jumped to.
-      if pending then
+      if preview_timer then
+        preview_timer:pause()
+      end
+      if pending and previewed then
+        -- The rows already show this letter.
+        pending = nil
+      elseif pending then
         local target = pending
         pending = nil
         -- The new base sits just before the target, so that the target is
@@ -627,6 +668,7 @@ function widgets.InfiniteList(parent, iterator, opts)
     end
     local rec = pending:jump(direction)
     show_letter(tostring(rec or pending:value()))
+    preview_after_pause()
   end
 
   for idx = 0, 8 do
