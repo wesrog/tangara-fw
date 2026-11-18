@@ -543,6 +543,12 @@ auto TrackQueue::random(bool en) -> void {
     const std::unique_lock<std::shared_mutex> lock(mutex_);
     if (en) {
       shuffle_.emplace(totalSize());
+      // Repeating one track would mean the shuffle is never heard, so turning
+      // shuffle on turns repeat-track off.
+      if (repeatMode_ == RepeatMode::REPEAT_TRACK) {
+        repeatMode_ = RepeatMode::OFF;
+        nvs_.QueueRepeatMode(repeatMode_);
+      }
     } else {
       shuffle_.reset();
     }
@@ -558,7 +564,14 @@ auto TrackQueue::random() const -> bool {
 }
 
 auto TrackQueue::repeatMode(RepeatMode mode) -> void {
-  repeatMode_ = mode;
+  {
+    const std::unique_lock<std::shared_mutex> lock(mutex_);
+    repeatMode_ = mode;
+    // Likewise, choosing repeat-track turns shuffle off.
+    if (mode == RepeatMode::REPEAT_TRACK) {
+      shuffle_.reset();
+    }
+  }
   nvs_.QueueRepeatMode(repeatMode_);
   notifyChanged(false, Reason::kExplicitUpdate);
 }
