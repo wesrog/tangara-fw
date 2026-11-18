@@ -79,7 +79,7 @@ return screen:new {
         queue.add(base, index)
       end
       playback.playing:set(true)
-      backstack.push(playing:new())
+      playing:push_if_not_shown()
     end
 
     widgets.InfiniteList(self.root, self.iterator, {
@@ -109,7 +109,7 @@ return screen:new {
             queue.clear()
             queue.add(contents)
             playback.playing:set(true)
-            backstack.push(playing:new())
+            playing:push_if_not_shown()
           else
             play_track(contents, index, base)
           end

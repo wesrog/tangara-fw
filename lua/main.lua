@@ -87,11 +87,16 @@ GLOBAL_BINDINGS = {
     end
     -- The bottom of the click wheel is its Play button, as on an iPod. In a
     -- music list, a tap plays the highlighted item straight away and a hold
-    -- pauses or resumes. Everywhere else, a tap pauses or resumes.
+    -- pauses or resumes. Everywhere else, a tap pauses or resumes. Starting
+    -- playback always shows Now Playing.
     if hooks.wheel and hooks.wheel.down then
       local toggle = function()
         local playback = require("playback")
-        playback.playing:set(not playback.playing:get())
+        local play = not playback.playing:get()
+        playback.playing:set(play)
+        if play and require("queue").size:get() > 0 then
+          require("playing"):push_if_not_shown()
+        end
       end
       hooks.wheel.down.click = function()
         if not require("widgets").play_focused() then

@@ -65,12 +65,12 @@ return screen:new {
               playlist_iterator:is_playlist(item) then
             queue.open_playlist(item:filepath())
             playback.playing:set(true)
-            backstack.push(playing:new())
+            playing:push_if_not_shown()
           elseif playback.is_playable(item:filepath()) then
             queue.clear()
             queue.add(item:filepath())
             playback.playing:set(true)
-            backstack.push(playing:new())
+            playing:push_if_not_shown()
           end
         end
       end
