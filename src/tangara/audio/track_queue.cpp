@@ -442,6 +442,10 @@ auto TrackQueue::next(Reason r) -> void {
     }
 
     goTo(position_);
+    ESP_LOGW("qdbg", "next reason=%d changed=%d pos=%u total=%u shuffle=%d repeat=%d val=%s",
+             static_cast<int>(r), changed, (unsigned)position_, (unsigned)totalSize(),
+             shuffle_.has_value(), static_cast<int>(repeatMode_),
+             playlist_.value().c_str());
   }
 
   notifyChanged(changed, r);
