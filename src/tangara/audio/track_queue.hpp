@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -151,7 +152,9 @@ class TrackQueue {
   auto getFilepath(database::TrackId id) -> std::optional<std::string>;
   auto appendAsync(database::TrackIterator i,
                    bool was_empty,
-                   bool start_with_first = false) -> void;
+                   bool start_with_first = false,
+                   size_t limit = SIZE_MAX) -> void;
+  auto maybeTopUp() -> void;
 
   mutable std::shared_mutex mutex_;
 
@@ -170,6 +173,11 @@ class TrackQueue {
   std::atomic<bool> cancel_appending_async_;
   std::atomic<bool> appending_async_;
   std::list<database::TrackIterator> pending_async_iterators_;
+
+  // When playing on from a picked track, only a window of the source list is
+  // queued at a time. This holds the rest of the source, to be appended as
+  // playback nears the end of the queue.
+  std::optional<database::TrackIterator> topup_source_;
 
   bool loading_;
   bool ready_;

@@ -43,6 +43,7 @@ local theme_deep_sea = {
     {lvgl.PART.MAIN, lvgl.Style {
       bg_opa = lvgl.OPA(100),
       bg_color = background_muted,
+      text_color = text_color,
       border_color = border_color,
       border_width = 1,
     }},
@@ -86,6 +87,14 @@ local theme_deep_sea = {
   bar = {
     {lvgl.PART.MAIN, lvgl.Style {
       bg_opa = lvgl.OPA(100),
+      bg_color = background_color,
+      border_color = border_color,
+      border_width = 1,
+      radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
+    }},
+    {lvgl.PART.INDICATOR, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      bg_color = highlight_color,
       radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
     }},
   },

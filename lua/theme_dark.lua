@@ -37,6 +37,7 @@ local theme_dark = {
     {lvgl.PART.MAIN, lvgl.Style {
       bg_opa = lvgl.OPA(100),
       bg_color = background_muted,
+      text_color = text_color,
     }},
   },
   button = {
@@ -72,6 +73,12 @@ local theme_dark = {
   bar = {
     {lvgl.PART.MAIN, lvgl.Style {
       bg_opa = lvgl.OPA(100),
+      bg_color = background_color,
+      radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
+    }},
+    {lvgl.PART.INDICATOR, lvgl.Style {
+      bg_opa = lvgl.OPA(100),
+      bg_color = highlight_color,
       radius = 32767, -- LV_RADIUS_CIRCLE = 0x7fff
     }},
   },
