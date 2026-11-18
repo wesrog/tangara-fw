@@ -14,9 +14,14 @@ local filesystem = require("filesystem")
 local theme = require("theme")
 local img = require("images")
 local playback = require("playback")
-local usb = require("usb")
+local playing_screen_settings = require("playing_screen_settings")
+
+-- Line height of fusion_12 (ascent 14 + descent 3), used to keep the
+-- now-playing title to a single line in "Ellipsize" mode.
+local TITLE_LINE_HEIGHT = 17
 
 return widgets.MenuScreen:new {
+  title = "Tangara",
   create_ui = function(self)
     widgets.MenuScreen.create_ui(self)
 
@@ -42,12 +47,27 @@ return widgets.MenuScreen:new {
     theme.set_subject(now_playing, "now_playing");
 
     local play_pause = now_playing:Image { src = img.play_circ }
+    -- The title is always a single line, so a long name can't push the list
+    -- down. It follows Settings > Playing Screen > Long Text Mode, except that
+    -- "Default" (wrap) becomes a circular marquee here.
     local title = now_playing:Label {
       flex_grow = 1,
       h = lvgl.SIZE_CONTENT,
       text = " ",
-      long_mode = 1,
+      long_mode = lvgl.LABEL.LONG_SCROLL_CIRCULAR,
     }
+    local function set_title_mode(mode)
+      if mode == lvgl.LABEL.LONG_DOT then
+        title:set { long_mode = mode, h = TITLE_LINE_HEIGHT }
+      elseif mode == lvgl.LABEL.LONG_SCROLL or mode == lvgl.LABEL.LONG_CLIP then
+        title:set { long_mode = mode, h = lvgl.SIZE_CONTENT }
+      else
+        title:set {
+          long_mode = lvgl.LABEL.LONG_SCROLL_CIRCULAR,
+          h = lvgl.SIZE_CONTENT,
+        }
+      end
+    end
     local time_remaining = now_playing:Label {
       text = " ",
       text_font = font.fusion_10,
@@ -58,6 +78,7 @@ return widgets.MenuScreen:new {
     local track_duration = nil
 
     self.bindings = self.bindings + {
+      playing_screen_settings.long_text_scheme:bind(set_title_mode),
       playback.playing:bind(function(playing)
         if playing then
           play_pause:set_src(img.play_circ)
@@ -137,15 +158,35 @@ return widgets.MenuScreen:new {
     end)
     playlist_btn:add_style(styles.list_item)
 
+    -- Files and Settings sit at the end of the menu, iPod style. They stay
+    -- visible when there's no library, so Settings is always reachable.
+    local files_btn = indexes_list:add_btn(nil, "Files")
+    files_btn:onClicked(function()
+      backstack.push(require("file_browser"):new {
+        title = "Files",
+        iterator = filesystem.iterator(""),
+      })
+    end)
+    files_btn:add_style(styles.list_item)
+
+    local settings_btn = indexes_list:add_btn(nil, "Settings")
+    settings_btn:onClicked(function()
+      backstack.push(require("settings").Root:new())
+    end)
+    settings_btn:add_style(styles.list_item)
+
     local function show_no_indexes(msg)
-      indexes_list:add_flag(lvgl.FLAG.HIDDEN)
+      for _, idx in ipairs(indexes) do
+        idx.object:add_flag(lvgl.FLAG.HIDDEN)
+      end
+      playlist_btn:add_flag(lvgl.FLAG.HIDDEN)
       no_indexes_container:clear_flag(lvgl.FLAG.HIDDEN)
       no_indexes_label:set { text = msg }
+      settings_btn:focus()
     end
 
     local function hide_no_indexes()
       no_indexes_container:add_flag(lvgl.FLAG.HIDDEN)
-      indexes_list:clear_flag(lvgl.FLAG.HIDDEN)
 
       if indexes[1] then
         indexes[1].object:focus()
@@ -194,87 +235,15 @@ return widgets.MenuScreen:new {
         update_visible_indexes()
       end),
       sd_card.mounted:bind(function(mounted)
+        if mounted then
+          files_btn:clear_flag(lvgl.FLAG.HIDDEN)
+        else
+          files_btn:add_flag(lvgl.FLAG.HIDDEN)
+        end
         if not mounted then
           show_no_indexes("SD Card is not inserted or could not be opened.")
         end
       end),
     }
-
-    -- Finally, the bottom bar with icon buttons for other device features.
-
-    local bottom_bar = lvgl.Object(self.root, {
-      flex = {
-        flex_direction = "row",
-        flex_wrap = "nowrap",
-        justify_content = "space-evenly",
-        align_items = "center",
-        align_content = "flex-start",
-      },
-      w = lvgl.PCT(100),
-      h = lvgl.SIZE_CONTENT,
-      pad_top = 4,
-      pad_bottom = 2,
-    })
-
-    -- local queue_btn = bottom_bar:Button {}
-    -- queue_btn:Image { src = img.queue }
-    -- theme.set_subject(queue_btn, "icon_enabled")
-
-    local usb_btn = bottom_bar:Button {}
-    usb_btn:onClicked(function()
-      backstack.push(require("settings").MassStorageSettings:new())
-    end)
-    usb_btn:Image { src = img.usb }
-    widgets.Description(usb_btn, "USB Settings")
-    theme.set_subject(usb_btn, "menu_icon")
-
-    self.bindings = self.bindings + {
-      require("power").plugged_in:bind(function(attached)
-        if (attached) then
-          usb_btn:clear_flag(lvgl.FLAG.HIDDEN)
-        else
-          usb_btn:add_flag(lvgl.FLAG.HIDDEN)
-        end
-      end)
-    }
-
-    local unmount_btn = bottom_bar:Button {}
-    unmount_btn:onClicked(function()
-      sd_card.unmount()
-    end)
-    unmount_btn:Image { src = img.unmount }
-    widgets.Description(unmount_btn, "Unmount the SD Card")
-    theme.set_subject(unmount_btn, "menu_icon")
-    local unmount_btn_bind = function()
-      if sd_card.mounted:get() and not database.updating:get() and not usb.msc_enabled:get() then
-        unmount_btn:clear_flag(lvgl.FLAG.HIDDEN)
-      else
-        unmount_btn:add_flag(lvgl.FLAG.HIDDEN)
-      end
-    end
-    self.bindings = self.bindings + {
-      sd_card.mounted:bind(unmount_btn_bind),
-      database.updating:bind(unmount_btn_bind),
-      usb.msc_enabled:bind(unmount_btn_bind)
-    }
-
-    local files_btn = bottom_bar:Button {}
-    files_btn:onClicked(function()
-      backstack.push(require("file_browser"):new {
-        title = "Files",
-        iterator = filesystem.iterator(""),
-      })
-    end)
-    files_btn:Image { src = img.files }
-    widgets.Description(files_btn, "File browser")
-    theme.set_subject(files_btn, "menu_icon")
-
-    local settings_btn = bottom_bar:Button {}
-    settings_btn:onClicked(function()
-      backstack.push(require("settings").Root:new())
-    end)
-    settings_btn:Image { src = img.settings }
-    widgets.Description(settings_btn, "Settings")
-    theme.set_subject(settings_btn, "menu_icon")
   end,
 }

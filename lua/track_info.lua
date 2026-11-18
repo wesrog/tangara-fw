@@ -25,6 +25,7 @@ return screen:new {
 
     self.status_bar = widgets.StatusBar(self, {
       back_cb = backstack.pop,
+      title = "Track Info",
       transparent_bg = true,
     })
 

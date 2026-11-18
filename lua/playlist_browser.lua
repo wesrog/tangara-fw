@@ -30,34 +30,12 @@ return screen:new {
     })
     self.root:center()
 
+    -- One title bar, showing the most specific name we have: the folder,
+    -- album, artist etc. being browsed, or else the name of the list.
     self.status_bar = widgets.StatusBar(self, {
       back_cb = backstack.pop,
-      title = self.title
+      title = self.breadcrumb and widgets.LastPathPart(self.breadcrumb) or self.title
     })
-
-    local header = self.root:Object {
-      flex = {
-        flex_direction = "column",
-        flex_wrap = "wrap",
-        justify_content = "flex-start",
-        align_items = "flex-start",
-        align_content = "flex-start"
-      },
-      w = lvgl.HOR_RES(),
-      h = lvgl.SIZE_CONTENT,
-      pad_left = 4,
-      pad_right = 4,
-      pad_bottom = 2,
-      scrollbar_mode = lvgl.SCROLLBAR_MODE.OFF
-    }
-    theme.set_subject(header, "header")
-
-    if self.breadcrumb then
-      header:Label {
-        text = self.breadcrumb,
-        text_font = font.fusion_10
-      }
-    end
 
     local get_icon_func = function(item)
       if item:is_directory() then
