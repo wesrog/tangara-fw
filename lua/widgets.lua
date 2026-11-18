@@ -146,16 +146,18 @@ function widgets.StatusBar(parent, opts)
     scrollbar_mode = lvgl.SCROLLBAR_MODE.OFF,
   }
 
-  if not opts.transparent_bg then
-    theme.set_subject(root, "header")
-  end
-  theme.set_subject(root, "status_bar")
-
   -- With the click wheel, tapping the top of the wheel always goes back (like
   -- an iPod's Menu button), so the on-screen back button is just one more
   -- thing to scroll past. Other control schemes still need it.
   local wheel_scheme = require("controls").wheel_scheme:get()
   local click_wheel = wheel_scheme == 2 or wheel_scheme == 3
+
+  -- Without a back button, a transparent bar with a title looks bare, so give
+  -- it the same header bar as lists.
+  if not opts.transparent_bg or (click_wheel and opts.title) then
+    theme.set_subject(root, "header")
+  end
+  theme.set_subject(root, "status_bar")
   if opts.back_cb and not click_wheel then
     local back = root:Button {
       w = lvgl.SIZE_CONTENT,
@@ -185,6 +187,8 @@ function widgets.StatusBar(parent, opts)
     align = lvgl.ALIGN.CENTER,
     flex_grow = 1,
     pad_left = 2,
+    -- Keep long titles (e.g. a song's name) to one line.
+    long_mode = lvgl.LABEL.LONG_DOT,
   }
   if opts.title then
     title:set { text = opts.title }

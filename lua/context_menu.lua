@@ -30,6 +30,7 @@ return screen:new {
 
     self.status_bar = widgets.StatusBar(self, {
       back_cb = backstack.pop,
+      title = tostring(self.item),
       transparent_bg = true,
     })
 
