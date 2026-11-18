@@ -151,7 +151,12 @@ function widgets.StatusBar(parent, opts)
   end
   theme.set_subject(root, "status_bar")
 
-  if opts.back_cb then
+  -- With the click wheel, tapping the top of the wheel always goes back (like
+  -- an iPod's Menu button), so the on-screen back button is just one more
+  -- thing to scroll past. Other control schemes still need it.
+  local wheel_scheme = require("controls").wheel_scheme:get()
+  local click_wheel = wheel_scheme == 2 or wheel_scheme == 3
+  if opts.back_cb and not click_wheel then
     local back = root:Button {
       w = lvgl.SIZE_CONTENT,
       h = lvgl.SIZE_CONTENT,
