@@ -21,6 +21,7 @@ local playing_screen_settings = require("playing_screen_settings")
 local TITLE_LINE_HEIGHT = 17
 
 return widgets.MenuScreen:new {
+  title = "Tangara",
   create_ui = function(self)
     widgets.MenuScreen.create_ui(self)
 
