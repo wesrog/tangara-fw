@@ -121,9 +121,6 @@ auto Playlist::peekNext() -> std::optional<std::string> {
   if (f_lseek(&file_, offset) != FR_OK) {
     file_error_ = true;
   }
-  ESP_LOGW("qdbg", "peekNext pos_=%d tell=%llu err=%d -> %s", (int)pos_,
-           (unsigned long long)f_tell(&file_), file_error_,
-           res ? res->c_str() : "(none)");
   return res;
 }
 
@@ -286,20 +283,13 @@ auto Playlist::close() -> void {
 
 auto Playlist::skipToLocked(size_t position) -> void {
   if (!file_open_ || file_error_) {
-    ESP_LOGW("qdbg", "skipTo %u ignored: open=%d err=%d", (unsigned)position, file_open_,
-             file_error_);
     return;
   }
 
   // Moving to the very next entry (the common case when playing through a
   // queue) only needs one more line read from where we already are.
   if (pos_ >= 0 && position == static_cast<size_t>(pos_) + 1) {
-    auto before = f_tell(&file_);
-    bool ok = advanceBy(1);
-    ESP_LOGW("qdbg", "skipTo %u fast: ok=%d pos_=%d tell %llu->%llu size=%llu err=%d val=%s",
-             (unsigned)position, ok, (int)pos_, (unsigned long long)before,
-             (unsigned long long)f_tell(&file_), (unsigned long long)f_size(&file_),
-             file_error_, current_value_.c_str());
+    advanceBy(1);
     return;
   }
 
@@ -325,10 +315,7 @@ auto Playlist::skipToLocked(size_t position) -> void {
   pos_ = static_cast<ssize_t>(quotient * sample_size_) - 1;
 
   // Count ahead entries.
-  bool ok = advanceBy(remainder + 1);
-  ESP_LOGW("qdbg", "skipTo %u cached: entry=%llu ok=%d pos_=%d err=%d val=%s",
-           (unsigned)position, (unsigned long long)entry, ok, (int)pos_, file_error_,
-           current_value_.c_str());
+  advanceBy(remainder + 1);
 }
 
 auto Playlist::skipToWithoutCache(size_t position) -> void {
