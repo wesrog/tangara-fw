@@ -92,6 +92,23 @@ GLOBAL_BINDINGS = {
         require("widgets").play_focused()
       end
     end
+    -- Spinning the click wheel fast through a long list jumps by letter.
+    if hooks.wheel and hooks.wheel.jump_next then
+      hooks.wheel.jump_next.click = function()
+        require("widgets").jump_focused(1)
+      end
+      hooks.wheel.jump_prev.click = function()
+        require("widgets").jump_focused(-1)
+      end
+      hooks.wheel.jump_end.click = function()
+        require("widgets").jump_focused(0)
+      end
+      if hooks.wheel.jump_release then
+        hooks.wheel.jump_release.click = function()
+          require("widgets").jump_focused(nil)
+        end
+      end
+    end
   end),
   sd_card.mounted:bind(function(mounted)
     backstack.reset(main_menu:new())

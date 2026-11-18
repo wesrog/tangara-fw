@@ -164,6 +164,11 @@ class Database {
   auto getRecord(const SearchKey& c)
       -> std::optional<std::pair<std::pmr::string, Record>>;
   auto countRecords(const SearchKey& c) -> size_t;
+  auto jumpGroup(const std::pmr::string& prefix,
+                 std::string_view current_key,
+                 std::string_view current_text,
+                 int direction)
+      -> std::optional<std::pair<std::pmr::string, Record>>;
 };
 
 class Handle {
@@ -238,10 +243,29 @@ class Iterator {
   auto prev() -> void;
 
   /*
-   * Moves forward by `n` records, as if next() was called `n` times, but with
-   * a single database seek instead of one per record.
+   * Moves by `n` records, as if next() was called `n` times, but with a single
+   * database seek instead of one per record. `n` may be negative, in which
+   * case the iterator moves backwards: afterwards, next() returns the record
+   * `n` places before the one it would have returned.
    */
-  auto skip(size_t n) -> void;
+  auto skip(int n) -> void;
+
+  /*
+   * Moves to the first record of the next (direction > 0) or previous
+   * (direction < 0) group of records, where a group is all the records whose
+   * text starts with the same letter. Records starting with a digit or symbol
+   * form one group. This is for skipping quickly through long lists.
+   *
+   * The iterator must be positioned on a record. Returns false, without
+   * moving, if there is no such group.
+   */
+  auto jumpGroup(int direction) -> bool;
+
+  /*
+   * Whether this iterator's records are sorted by their text, as opposed to
+   * e.g. track number. jumpGroup() only makes sense for such lists.
+   */
+  auto sortedByText() const -> bool;
 
   std::optional<Record> operator--() {
     prev();
@@ -263,6 +287,8 @@ class Iterator {
   std::weak_ptr<Database> db_;
   SearchKey key_;
   std::optional<Record> current_;
+  IndexId index_id_;
+  size_t depth_;
 };
 
 class TrackIterator {

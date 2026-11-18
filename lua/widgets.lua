@@ -316,6 +316,45 @@ function widgets.play_focused()
   end
 end
 
+-- List rows' jump-by-letter actions, keyed by row. Weak keys, so that rows can
+-- be deleted along with their screen.
+widgets.jump_actions = setmetatable({}, { __mode = "k" })
+
+-- Passes a jump from the click wheel to the focused list, if it supports
+-- jumping. direction is 1 (next letter), -1 (previous letter), or 0 (the
+-- spin has slowed down, so land on the letter we jumped to).
+function widgets.jump_focused(direction)
+  local group = lvgl.group.get_default()
+  local focused = group and group:get_focused()
+  local action = focused and widgets.jump_actions[focused]
+  if action then
+    action(direction)
+  end
+end
+
+-- Lists at least this long jump by letter when the click wheel is spun fast.
+local kJumpMinItems = 50
+
+-- The letter shown while jumping through a list: the upper case first letter,
+-- or "#" for digits and symbols. Matches the grouping in the database.
+local function letter_of(text)
+  local first = string.sub(text, 1, 1)
+  if first == "" then
+    return "#"
+  end
+  if string.byte(first) >= 0x80 then
+    local ok, cp = pcall(utf8.codepoint, text, 1)
+    if ok then
+      return utf8.char(cp)
+    end
+    return "#"
+  end
+  if string.match(first, "%a") then
+    return string.upper(first)
+  end
+  return "#"
+end
+
 function widgets.InfiniteList(parent, iterator, opts)
   local infinite_list = {}
 
@@ -348,12 +387,27 @@ function widgets.InfiniteList(parent, iterator, opts)
     refreshing = false
   end
 
+  -- Item indices are relative to this iterator: index 0 is the record that
+  -- base:next() returns. It changes when the list jumps to a letter, after
+  -- which indices above the letter are negative.
+  local base = iterator
   local fwd_iterator = iterator:clone()
   local bck_iterator = iterator:clone()
 
   local last_selected = 0
   local last_index = 0
   local first_index = 0
+
+  -- Long lists sorted by name can be jumped through by letter, by spinning
+  -- the click wheel fast. Rows of such lists are marked with USER_1, which
+  -- tells the wheel to send jumps instead of scrolling row by row.
+  local jumpable = false
+  local ok, sorted_by_text = pcall(function() return iterator.sorted_by_text end)
+  if ok and sorted_by_text and iterator:sorted_by_text() then
+    local probe = iterator:clone()
+    probe:skip(kJumpMinItems)
+    jumpable = probe:value() ~= nil
+  end
 
   local function remove_top()
     local obj = infinite_list.root:get_child(0)
@@ -369,12 +423,17 @@ function widgets.InfiniteList(parent, iterator, opts)
     fwd_iterator:prev()
   end
 
+  local jump
+  -- Keeps the letter overlay (if it's showing) in step with the focused row.
+  local follow_letter
+
   local function add_item(item, index, item_opts)
     if not item then
       return
     end
     item_opts = item_opts or {}
     local this_item = index
+    local this_base = base
     local add_to_top = false
     if this_item < first_index then
       first_index = this_item
@@ -393,12 +452,17 @@ function widgets.InfiniteList(parent, iterator, opts)
       btn:focus()
     end
     -- opts.callback should take an item (and optionally its index in the
-    -- list) and return a function matching the arg of onClicked
+    -- list, and the iterator that index is relative to) and return a function
+    -- matching the arg of onClicked
     if opts.callback then
-      btn:onClicked(opts.callback(item, this_item))
+      btn:onClicked(opts.callback(item, this_item, this_base))
     end
     if opts.play_callback then
-      widgets.play_actions[btn] = opts.play_callback(item, this_item)
+      widgets.play_actions[btn] = opts.play_callback(item, this_item, this_base)
+    end
+    if jumpable then
+      btn:add_flag(lvgl.FLAG.USER_1)
+      widgets.jump_actions[btn] = jump
     end
     -- Scroll instantly rather than animating on every step. Animating each
     -- item while the wheel is spinning makes the list feel chunky, as each
@@ -406,6 +470,9 @@ function widgets.InfiniteList(parent, iterator, opts)
     btn:clear_flag(lvgl.FLAG.SCROLL_ON_FOCUS)
     btn:onevent(lvgl.EVENT.FOCUSED, function()
       btn:scroll_to_view(false)
+      if follow_letter then
+        follow_letter(item)
+      end
       if refreshing then return end
       if this_item > last_selected and this_item - first_index > 3 then
         -- moving forward
@@ -416,8 +483,8 @@ function widgets.InfiniteList(parent, iterator, opts)
         end
       end
       if this_item < last_selected then
-        -- moving backward
-        if (first_index > 0 and last_index - this_item > 3) then
+        -- moving backward (this may go above index 0 after a jump)
+        if last_index - this_item > 3 then
           local to_add = bck_iterator:value();
           if to_add then
             bck_iterator:prev()
@@ -434,6 +501,174 @@ function widgets.InfiniteList(parent, iterator, opts)
     end
     btn:add_style(styles.list_item)
     return btn
+  end
+
+  -- Shows the rows starting at index 0 of a new base, and focuses the first.
+  local function fill(new_base)
+    refreshing = true
+    for i = infinite_list.root:get_child_cnt() - 1, 0, -1 do
+      infinite_list.root:get_child(i):delete()
+    end
+    base = new_base
+    fwd_iterator = new_base:clone()
+    bck_iterator = new_base:clone()
+    first_index = 0
+    last_index = 0
+    last_selected = 0
+    for idx = 0, 8 do
+      local val = fwd_iterator:next()
+      if not val then
+        break
+      end
+      add_item(val, idx, { focus = idx == 0 })
+    end
+    -- Also show a few rows above the one we landed on. Without these, the
+    -- landed row is the first in the list, so scrolling back moves focus out
+    -- of the list and into the buttons above it.
+    for _ = 1, 4 do
+      local to_add = bck_iterator:value()
+      if not to_add then
+        break
+      end
+      bck_iterator:prev()
+      add_item(to_add, first_index - 1)
+    end
+    refreshing = false
+    -- Rows added above must come first in the focus order too.
+    refresh_group()
+  end
+
+  -- Jumping by letter. While the wheel is spinning fast, only the letter
+  -- overlay changes; the rows are rebuilt once, when the spin slows down.
+  local pending = nil -- Iterator on the record we've jumped to.
+  local overlay = nil
+  local overlay_label = nil
+  local overlay_timer = nil
+  local overlay_shown = false
+
+  local function hide_overlay_after(ms)
+    if overlay_timer then
+      overlay_timer:delete()
+    end
+    overlay_timer = lvgl.Timer {
+      period = ms,
+      cb = function(t)
+        t:pause()
+        overlay_shown = false
+        if overlay then
+          pcall(overlay.add_flag, overlay, lvgl.FLAG.HIDDEN)
+        end
+      end,
+    }
+  end
+
+  local function show_letter(text)
+    if not overlay then
+      overlay = parent:Object {
+        w = 36,
+        h = 36,
+        radius = 6,
+        pad_all = 0,
+      }
+      -- Not part of the screen's layout, and drawn over the list.
+      overlay:add_flag(lvgl.FLAG.FLOATING)
+      theme.set_subject(overlay, "pop_up")
+      overlay_label = overlay:Label {
+        text = "",
+        text_font = font.fusion_12,
+      }
+      overlay_label:center()
+      overlay:center()
+    end
+    overlay_label:set { text = letter_of(text) }
+    overlay_label:center()
+    overlay:clear_flag(lvgl.FLAG.HIDDEN)
+    overlay_shown = true
+    -- The overlay stays up until the finger lifts. This is only a fallback,
+    -- in case the release never reaches this list (e.g. the screen changed).
+    hide_overlay_after(10000)
+  end
+
+  follow_letter = function(item)
+    if overlay_shown then
+      overlay_label:set { text = letter_of(tostring(item)) }
+      overlay_label:center()
+    end
+  end
+
+  -- While jumping, the rows follow the letter too, once the wheel pauses on it
+  -- for a moment. Rebuilding the rows on every jump would make fast spins
+  -- stutter, so they're only rebuilt after kPreviewDelayMs without a jump.
+  local kPreviewDelayMs = 200
+  local preview_timer = nil
+  local previewed = false -- Whether the rows already show `pending`.
+
+  -- Shows the rows starting at the letter we've jumped to, without ending
+  -- the jump.
+  local function show_pending()
+    if not pending then
+      return
+    end
+    local target = pending:clone()
+    -- See the comment in jump() about why the base sits before the target.
+    target:prev()
+    fill(target)
+    previewed = true
+  end
+
+  local function preview_after_pause()
+    previewed = false
+    if preview_timer then
+      preview_timer:delete()
+    end
+    preview_timer = lvgl.Timer {
+      period = kPreviewDelayMs,
+      cb = function(t)
+        t:pause()
+        -- The screen may have gone since; if so, do nothing.
+        pcall(show_pending)
+      end,
+    }
+  end
+
+  jump = function(direction)
+    if direction == nil then
+      -- The finger has lifted. Stop showing the letter.
+      hide_overlay_after(300)
+      return
+    end
+    if direction == 0 then
+      -- The spin has slowed down. Land on the letter we jumped to.
+      if preview_timer then
+        preview_timer:pause()
+      end
+      if pending and previewed then
+        -- The rows already show this letter.
+        pending = nil
+      elseif pending then
+        local target = pending
+        pending = nil
+        -- The new base sits just before the target, so that the target is
+        -- index 0. (If the target is the very first record, prev() fails and
+        -- leaves it just before the target anyway.)
+        target:prev()
+        fill(target)
+      end
+      -- Keep showing the letter until the finger lifts.
+      return
+    end
+    if not pending then
+      -- Start from the focused row.
+      pending = base:clone()
+      pending:skip(last_selected + 1)
+      if not pending:value() then
+        pending = nil
+        return
+      end
+    end
+    local rec = pending:jump(direction)
+    show_letter(tostring(rec or pending:value()))
+    preview_after_pause()
   end
 
   for idx = 0, 8 do
