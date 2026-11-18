@@ -15,6 +15,11 @@ local theme = require("theme")
 local img = require("images")
 local playback = require("playback")
 local usb = require("usb")
+local playing_screen_settings = require("playing_screen_settings")
+
+-- Line height of fusion_12 (ascent 14 + descent 3), used to keep the
+-- now-playing title to a single line in "Ellipsize" mode.
+local TITLE_LINE_HEIGHT = 17
 
 return widgets.MenuScreen:new {
   create_ui = function(self)
@@ -42,12 +47,27 @@ return widgets.MenuScreen:new {
     theme.set_subject(now_playing, "now_playing");
 
     local play_pause = now_playing:Image { src = img.play_circ }
+    -- The title is always a single line, so a long name can't push the list
+    -- down. It follows Settings > Playing Screen > Long Text Mode, except that
+    -- "Default" (wrap) becomes a circular marquee here.
     local title = now_playing:Label {
       flex_grow = 1,
       h = lvgl.SIZE_CONTENT,
       text = " ",
-      long_mode = 1,
+      long_mode = lvgl.LABEL.LONG_SCROLL_CIRCULAR,
     }
+    local function set_title_mode(mode)
+      if mode == lvgl.LABEL.LONG_DOT then
+        title:set { long_mode = mode, h = TITLE_LINE_HEIGHT }
+      elseif mode == lvgl.LABEL.LONG_SCROLL or mode == lvgl.LABEL.LONG_CLIP then
+        title:set { long_mode = mode, h = lvgl.SIZE_CONTENT }
+      else
+        title:set {
+          long_mode = lvgl.LABEL.LONG_SCROLL_CIRCULAR,
+          h = lvgl.SIZE_CONTENT,
+        }
+      end
+    end
     local time_remaining = now_playing:Label {
       text = " ",
       text_font = font.fusion_10,
@@ -58,6 +78,7 @@ return widgets.MenuScreen:new {
     local track_duration = nil
 
     self.bindings = self.bindings + {
+      playing_screen_settings.long_text_scheme:bind(set_title_mode),
       playback.playing:bind(function(playing)
         if playing then
           play_pause:set_src(img.play_circ)
