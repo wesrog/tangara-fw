@@ -31,12 +31,17 @@ local is_now_playing_shown = false
 local icon_enabled_class = "icon_enabled"
 local icon_disabled_class = "icon_disabled"
 
+-- Line heights of fusion_12 (the title) and fusion_10 (artist and album).
+local TITLE_LINE_HEIGHT = 17
+local SMALL_LINE_HEIGHT = 15
+
 return screen:new {
   create_ui = function(self)
     self.root = lvgl.Object(nil, {
       flex = {
         flex_direction = "column",
-        flex_wrap = "wrap",
+        -- Never wrap into a second column, even if a long title doesn't fit.
+        flex_wrap = "nowrap",
         justify_content = "center",
         align_items = "center",
         align_content = "center",
@@ -48,13 +53,14 @@ return screen:new {
 
     self.status_bar = widgets.StatusBar(self, {
       back_cb = backstack.pop,
+      title = "Now Playing",
       transparent_bg = true,
     })
 
     local info = self.root:Object {
       flex = {
         flex_direction = "column",
-        flex_wrap = "wrap",
+        flex_wrap = "nowrap",
         justify_content = "center",
         align_items = "center",
         align_content = "center",
@@ -62,7 +68,11 @@ return screen:new {
       w = lvgl.PCT(100),
       h = lvgl.SIZE_CONTENT,
       flex_grow = 1,
+      scrollbar_mode = lvgl.SCROLLBAR_MODE.OFF,
     }
+    -- The track details get whatever space the controls leave, and anything
+    -- that still doesn't fit is cut off rather than pushing them off screen.
+    info:clear_flag(lvgl.FLAG.SCROLLABLE)
 
     local artist = info:Label {
       w = lvgl.PCT(100),
@@ -92,6 +102,17 @@ return screen:new {
       artist:set{long_mode = long_text_mode}
       album:set{long_mode = long_text_mode}
       title:set{long_mode=long_text_mode}
+    end
+    -- A very long title (e.g. "A Huge Ever Growing Pulsating Brain That Rules
+    -- from the Centre of the Ultraworld") would otherwise wrap onto so many
+    -- lines that the controls no longer fit. Show at most three lines, ending
+    -- in "..." if it's cut short.
+    local long_mode = playing_screen_settings.long_text_scheme:get()
+    if long_mode == nil or long_mode == lvgl.LABEL.LONG_WRAP
+        or long_mode == lvgl.LABEL.LONG_DOT then
+      title:set { long_mode = lvgl.LABEL.LONG_DOT, max_height = 3 * TITLE_LINE_HEIGHT }
+      artist:set { long_mode = lvgl.LABEL.LONG_DOT, max_height = 2 * SMALL_LINE_HEIGHT }
+      album:set { long_mode = lvgl.LABEL.LONG_DOT, max_height = 2 * SMALL_LINE_HEIGHT }
     end
 
     local playlist = self.root:Object {

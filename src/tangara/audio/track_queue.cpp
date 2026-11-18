@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <iterator>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -242,6 +243,28 @@ auto TrackQueue::append(Item i) -> void {
     // doesn't block.
     appendAsync(std::get<database::TrackIterator>(i), was_queue_empty);
   }
+}
+
+auto TrackQueue::entries(size_t first, size_t count)
+    -> std::vector<std::string> {
+  const std::shared_lock<std::shared_mutex> lock(mutex_);
+  std::vector<std::string> res;
+  if (!ready_) {
+    return res;
+  }
+  // An opened playlist comes first, then anything appended after it.
+  size_t opened_size = opened_playlist_ ? opened_playlist_->size() : 0;
+  if (opened_playlist_ && first < opened_size) {
+    res = opened_playlist_->valuesAt(first, count);
+    first = opened_size;
+    count -= std::min(count, res.size());
+  }
+  if (count > 0 && first >= opened_size) {
+    auto rest = playlist_.valuesAt(first - opened_size, count);
+    res.insert(res.end(), std::make_move_iterator(rest.begin()),
+               std::make_move_iterator(rest.end()));
+  }
+  return res;
 }
 
 auto TrackQueue::peekNext() -> std::optional<std::string> {

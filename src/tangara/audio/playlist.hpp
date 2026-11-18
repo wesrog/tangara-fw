@@ -49,6 +49,12 @@ class Playlist {
   /* The entry after the current one, without moving to it. */
   auto peekNext() -> std::optional<std::string>;
 
+  /*
+   * Up to `count` entries starting at `start` (0-based), without moving the
+   * current position. Used to show the queue.
+   */
+  auto valuesAt(size_t start, size_t count) -> std::vector<std::string>;
+
   auto writeToFile(const std::string& filepath) -> bool;
 
   auto serialiseCache() -> bool;
