@@ -17,6 +17,9 @@ local theme_dark = {
       bg_opa = lvgl.OPA(0),
       text_font = font.fusion_12,
     }},
+    {lvgl.PART.SCROLLBAR, lvgl.Style {
+      bg_color = highlight_color,
+    }},
   },
   root = {
     {lvgl.PART.MAIN, lvgl.Style {

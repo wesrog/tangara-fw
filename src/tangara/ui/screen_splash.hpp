@@ -8,6 +8,7 @@
 
 #include <memory>
 
+#include "drivers/nvs.hpp"
 #include "lvgl.h"
 
 #include "ui/screen.hpp"
@@ -17,7 +18,7 @@ namespace screens {
 
 class Splash : public Screen {
  public:
-  Splash();
+  explicit Splash(drivers::NvsStorage& nvs);
   ~Splash();
 
   auto canPop() -> bool override { return true; }
