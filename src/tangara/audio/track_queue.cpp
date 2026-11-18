@@ -543,10 +543,11 @@ auto TrackQueue::random(bool en) -> void {
     const std::unique_lock<std::shared_mutex> lock(mutex_);
     if (en) {
       shuffle_.emplace(totalSize());
-      // Repeating one track would mean the shuffle is never heard, so turning
-      // shuffle on turns repeat-track off.
-      if (repeatMode_ == RepeatMode::REPEAT_TRACK) {
-        repeatMode_ = RepeatMode::OFF;
+      // Shuffle is one of the UI's play modes and carries on forever. It also
+      // means repeat-track can't be on, which would mean the shuffle is never
+      // heard.
+      if (repeatMode_ != RepeatMode::REPEAT_QUEUE) {
+        repeatMode_ = RepeatMode::REPEAT_QUEUE;
         nvs_.QueueRepeatMode(repeatMode_);
       }
     } else {
