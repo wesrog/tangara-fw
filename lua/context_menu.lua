@@ -54,9 +54,14 @@ return screen:new {
     play_btn:onClicked(function() play(false) end)
     play_btn:add_style(styles.list_item)
 
-    local shuffle_btn = menu_items:add_btn(nil, "Shuffle")
-    shuffle_btn:onClicked(function() play(true) end)
-    shuffle_btn:add_style(styles.list_item)
+    -- Shuffling a single track would just play it, so only offer Shuffle for
+    -- things with several tracks in them (albums, artists, etc). A track's
+    -- contents are its id; anything else has an iterator.
+    if type(self.item:contents()) ~= "number" then
+      local shuffle_btn = menu_items:add_btn(nil, "Shuffle")
+      shuffle_btn:onClicked(function() play(true) end)
+      shuffle_btn:add_style(styles.list_item)
+    end
 
     local queue_btn = menu_items:add_btn(nil, "Add to Queue")
     queue_btn:onClicked(function()
@@ -71,7 +76,11 @@ return screen:new {
     -- anywhere in a long list.
     if self.list then
       local heading = menu_items:add_text(self.list_title or "Whole list")
-      heading:set { text_font = font.fusion_10 }
+      -- Same inset and look as the headings in Settings, so it doesn't sit
+      -- against the screen's edge.
+      heading:add_style(styles.list_heading)
+      theme.set_subject(heading, "settings_title")
+      heading:set { pad_bottom = 2 }
 
       local play_list = function(shuffle)
         queue.clear()
