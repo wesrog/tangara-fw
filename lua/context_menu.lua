@@ -42,6 +42,7 @@ return screen:new {
     })
 
     local play = function(shuffle)
+      print("qdbg context play " .. tostring(shuffle))
       queue.clear()
       queue.random:set(shuffle)
       queue.add(self.item:contents())

@@ -326,6 +326,10 @@ function widgets.play_focused()
   local group = lvgl.group.get_default()
   local focused = group and group:get_focused()
   local action = focused and widgets.play_actions[focused]
+  local n = 0
+  for _ in pairs(widgets.play_actions) do n = n + 1 end
+  print("qdbg play_focused group=" .. tostring(group) .. " focused=" ..
+    tostring(focused) .. " action=" .. tostring(action) .. " n=" .. n)
   if action then
     action()
     return true

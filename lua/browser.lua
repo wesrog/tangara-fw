@@ -105,6 +105,7 @@ return screen:new {
       play_callback = function(item, index, base)
         return function()
           local contents = item:contents()
+          print("qdbg play_callback " .. tostring(item) .. " " .. type(contents))
           if type(contents) == "userdata" then
             queue.clear()
             queue.add(contents)
