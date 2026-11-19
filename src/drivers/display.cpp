@@ -51,11 +51,15 @@ static const gpio_num_t kDisplayCs = GPIO_NUM_22;
  * The size of each of our two display buffers. This is fundamentally a balance
  * between performance and memory usage. LVGL docs recommend a buffer 1/10th the
  * size of the screen is the best tradeoff.
+ *
+ * With two buffers, LVGL renders the next strip of the screen into one buffer
+ * while the previous strip is still being sent to the display over DMA.
  8
  * The 160x128 is the nominal size of our standard faceplate's display.
  */
 static const int kDisplayBufferSize = 160 * 128 / 10;
 DMA_ATTR static lv_color_t kDisplayBuffer[kDisplayBufferSize];
+DMA_ATTR static lv_color_t kDisplayBuffer2[kDisplayBufferSize];
 
 namespace drivers {
 
@@ -67,6 +71,15 @@ extern "C" void FlushDataCallback(lv_display_t* display,
                                   uint8_t* px_map) {
   Display* instance = static_cast<Display*>(lv_display_get_user_data(display));
   instance->OnLvglFlush(area, px_map);
+}
+
+/*
+ * Callback invoked by LVGL when it needs the previous flush to be finished
+ * before it can reuse a draw buffer.
+ */
+extern "C" void FlushWaitCallback(lv_display_t* display) {
+  Display* instance = static_cast<Display*>(lv_display_get_user_data(display));
+  instance->FinishPendingFlush();
 }
 
 auto Display::Create(IGpios& expander,
@@ -161,16 +174,18 @@ auto Display::Create(IGpios& expander,
   // driver.
   ESP_LOGI(kTag, "Init buffers");
   assert(esp_ptr_dma_capable(kDisplayBuffer));
+  assert(esp_ptr_dma_capable(kDisplayBuffer2));
 
   ESP_LOGI(kTag, "Creating display");
   display->display_ =
       lv_display_create(init_data.width - init_data.pad, init_data.height);
-  lv_display_set_buffers(display->display_, kDisplayBuffer, NULL,
+  lv_display_set_buffers(display->display_, kDisplayBuffer, kDisplayBuffer2,
                          sizeof(kDisplayBuffer),
                          LV_DISPLAY_RENDER_MODE_PARTIAL);
   lv_display_set_color_format(display->display_, LV_COLOR_FORMAT_RGB565);
   lv_display_set_user_data(display->display_, display.get());
   lv_display_set_flush_cb(display->display_, &FlushDataCallback);
+  lv_display_set_flush_wait_cb(display->display_, &FlushWaitCallback);
   lv_display_set_default(display->display_);
 
   return display.release();
@@ -182,7 +197,8 @@ Display::Display(IGpios& gpio, spi_device_handle_t handle, uint_fast8_t pad)
       first_flush_finished_(false),
       display_on_(false),
       brightness_(0),
-      pad_(pad) {}
+      pad_(pad),
+      flush_pending_(false) {}
 
 Display::~Display() {
   ledc_fade_func_uninstall();
@@ -352,16 +368,53 @@ void Display::OnLvglFlush(const lv_area_t* area, uint8_t* color_map) {
                       4);
 
   // Now send the pixels for this region.
-  SendCommandWithData(displays::ST77XX_RAMWR,
-                      reinterpret_cast<uint8_t*>(color_map), size * 2);
+  bool is_last = lv_display_flush_is_last(display_);
+  if (is_last) {
+    // The last strip of a frame is sent synchronously. LVGL doesn't wait for
+    // it before going idle, and we must not hold the SPI bus (which the SD
+    // card shares) between frames.
+    SendCommandWithData(displays::ST77XX_RAMWR,
+                        reinterpret_cast<uint8_t*>(color_map), size * 2);
+    gpio_.SdMuxEnable(true);
+    spi_device_release_bus(handle_);
+  } else {
+    // Otherwise, start the pixel transfer and return straight away, so that
+    // LVGL can render the next strip into the other buffer while DMA runs.
+    // The transfer is completed, and the bus released, in
+    // FinishPendingFlush(), which LVGL calls before it next needs a buffer.
+    uint8_t command = displays::ST77XX_RAMWR;
+    SendTransaction(COMMAND, &command, 1);
 
-  gpio_.SdMuxEnable(true);
-  spi_device_release_bus(handle_);
+    memset(&pixel_transaction_, 0, sizeof(pixel_transaction_));
+    pixel_transaction_.length = size * 2 * 8;
+    pixel_transaction_.tx_buffer = color_map;
+    gpio_set_level(kDisplayDr, DATA);
+    ESP_ERROR_CHECK(spi_device_queue_trans(handle_, &pixel_transaction_,
+                                           portMAX_DELAY));
+    flush_pending_ = true;
+    return;
+  }
 
-  if (!first_flush_finished_ && lv_disp_flush_is_last(display_)) {
+  if (!first_flush_finished_ && is_last) {
     first_flush_finished_ = true;
     SetDisplayOn(display_on_);
   }
+
+  lv_display_flush_ready(display_);
+}
+
+IRAM_ATTR
+void Display::FinishPendingFlush() {
+  if (!flush_pending_) {
+    return;
+  }
+  spi_transaction_t* result;
+  ESP_ERROR_CHECK(
+      spi_device_get_trans_result(handle_, &result, portMAX_DELAY));
+  flush_pending_ = false;
+
+  gpio_.SdMuxEnable(true);
+  spi_device_release_bus(handle_);
 
   lv_display_flush_ready(display_);
 }
