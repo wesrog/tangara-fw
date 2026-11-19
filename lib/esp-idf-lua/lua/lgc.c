@@ -1721,12 +1721,8 @@ void luaC_fullgc (lua_State *L, int isemergency) {
   g->gcemergency = isemergency;  /* set flag */
   if (g->gckind == KGC_INC)
     fullinc(L, g);
-  else {
+  else
     fullgen(L, g);
-    /* Backport of the Lua 5.4.6 fix for "GC not setting a proper target for
-       next cycle after a full collection in generational mode". */
-    setminordebt(g);
-  }
   g->gcemergency = 0;
 }
 

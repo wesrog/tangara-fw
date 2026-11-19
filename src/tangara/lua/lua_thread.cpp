@@ -67,12 +67,7 @@ auto LuaThread::Start(system_fsm::ServiceLocator& services) -> LuaThread* {
   luaL_openlibs(state);
   lua_atpanic(state, lua_panic);
 
-  // Use generational GC. The UI makes lots of short-lived garbage (strings
-  // and tables for each list row), while most of the heap (screens, widgets,
-  // modules) lives a long time. Generational mode collects the young objects
-  // cheaply without walking the whole heap, which lives in slow PSRAM.
-  // Default multipliers: minor collection every 20% growth, major at 100%.
-  lua_gc(state, LUA_GCGEN, 0, 0);
+  lua_gc(state, LUA_GCSETPAUSE, 120);
 
   return new LuaThread(alloc, state);
 }
