@@ -170,6 +170,11 @@ void AudioState::react(const QueueUpdate& ev) {
 
   auto current = sServices->track_queue().current();
   cmd.new_track = current;
+  ESP_LOGW("qdbg", "QueueUpdate reason=%d changed=%d cur=%s", (int)ev.reason,
+           ev.current_changed,
+           std::holds_alternative<std::string>(current)
+               ? std::get<std::string>(current).c_str()
+               : "(none)");
 
   switch (ev.reason) {
     case QueueUpdate::kExplicitUpdate:
@@ -221,6 +226,11 @@ void AudioState::react(const SetTrack& ev) {
     // This has the effect of stopping the current playback, which is generally
     // what the user expects to happen when they say "Play this track!", even
     // if the new track has an issue.
+    ESP_LOGW("qdbg", "SetTrack open %s stream=%d",
+             std::holds_alternative<std::string>(new_track)
+                 ? std::get<std::string>(new_track).c_str()
+                 : "(id)",
+             stream != nullptr);
     sDecoder->open(stream);
 
     if (stream) {
@@ -286,6 +296,8 @@ void AudioState::react(const internal::DecodingFinished& ev) {
       auto tid = std::get<database::TrackId>(current);
       path = db->getTrackPath(tid).value_or("");
     }
+    ESP_LOGW("qdbg", "DecodingFinished uri=%s cur=%s", ev.track->uri.c_str(),
+             path.c_str());
     if (path == ev.track->uri) {
       queue.finish();
       incrementPlayCount(ev.track->uri);

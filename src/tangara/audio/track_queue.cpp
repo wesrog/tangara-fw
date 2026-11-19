@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "MillerShuffle.h"
+#include "esp_log.h"
 #include "esp_random.h"
 
 #include "audio/audio_events.hpp"
@@ -115,7 +116,9 @@ TrackQueue::TrackQueue(tasks::WorkerPool& bg_worker,
       cancel_appending_async_(false),
       appending_async_(false),
       loading_(false),
-      ready_(true) {}
+      ready_(true) {
+  esp_log_level_set("qdbg", ESP_LOG_INFO);
+}
 
 auto TrackQueue::current() const -> TrackItem {
   const std::shared_lock<std::shared_mutex> lock(mutex_);
@@ -310,6 +313,7 @@ auto TrackQueue::maybeTopUp() -> void {
     if (remaining > kPlayOnTopUpAt) {
       return;
     }
+    ESP_LOGW("qdbg", "topup: remaining=%u", remaining);
     source = std::move(topup_source_);
     topup_source_.reset();
   }
@@ -336,6 +340,8 @@ auto TrackQueue::appendAsync(database::TrackIterator it,
     }
   }
 
+  ESP_LOGW("qdbg", "appendAsync: start was_empty=%d first=%d limit=%u size=%u",
+           was_empty, start_with_first, limit, totalSize());
   bg_worker_.Dispatch<void>([=, this]() mutable {
     bool update_current = was_empty;
     if (update_current) {
@@ -387,6 +393,8 @@ auto TrackQueue::appendAsync(database::TrackIterator it,
             // First make sure the shuffler has the final count.
             updateShuffler(update_current);
 
+            ESP_LOGW("qdbg", "appendAsync: done size=%u pos=%u cur=%s",
+                     totalSize(), position_, playlist_.value().c_str());
             // Now reset all our state.
             loading_ = false;
             ready_ = true;
@@ -425,6 +433,8 @@ auto TrackQueue::appendAsync(database::TrackIterator it,
             notifyChanged(true, Reason::kExplicitUpdate);
             update_current = false;
           } else if (first_now && playlist_.size() > 0) {
+            ESP_LOGW("qdbg", "appendAsync: first ready %s",
+                     playlist_.value().c_str());
             // If the queue was empty, then we want to start playing the first
             // track without waiting for the entire queue to finish loading
             ready_ = true;
@@ -447,6 +457,7 @@ auto TrackQueue::appendAsync(database::TrackIterator it,
     // is a little messy, but we would have to gain a lock on mutex_ to reset
     // ourselves properly, and at the moment the only thing that can cancel us
     // is clear().
+    ESP_LOGW("qdbg", "appendAsync: cancelled");
     appending_async_ = false;
     appending_async_.notify_all();
   });
@@ -504,6 +515,8 @@ auto TrackQueue::next(Reason r) -> void {
     }
 
     goTo(position_);
+    ESP_LOGW("qdbg", "next(r=%d): pos=%u size=%u changed=%d", (int)r,
+             position_, totalSize(), changed);
   }
 
   notifyChanged(changed, r);
@@ -540,6 +553,8 @@ auto TrackQueue::finish() -> void {
 }
 
 auto TrackQueue::clear() -> void {
+  ESP_LOGW("qdbg", "clear: size=%u pos=%u appending=%d", totalSize(),
+           position_, (int)appending_async_.load());
   if (appending_async_) {
     cancel_appending_async_ = true;
     appending_async_.wait(true);
@@ -552,8 +567,9 @@ auto TrackQueue::clear() -> void {
     loading_ = false;
     pending_async_iterators_.clear();
     topup_source_.reset();
-    playlist_.clear();
+    bool ok = playlist_.clear();
     opened_playlist_.reset();
+    ESP_LOGW("qdbg", "clear: done ok=%d size=%u", ok, totalSize());
     if (shuffle_) {
       shuffle_->resize(0);
     }
