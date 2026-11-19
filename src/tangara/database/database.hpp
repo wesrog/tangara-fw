@@ -177,7 +177,7 @@ class Database {
     std::unique_ptr<leveldb::Iterator> it;
     uint32_t generation;
   };
-  static constexpr size_t kCachedCursors = 4;
+  static constexpr size_t kCachedCursors = 2;
   std::mutex cursors_mutex_;
   std::array<CachedCursor, kCachedCursors> cursors_;
   std::atomic<uint32_t> write_generation_{0};

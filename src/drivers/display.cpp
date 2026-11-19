@@ -57,7 +57,10 @@ static const gpio_num_t kDisplayCs = GPIO_NUM_22;
  8
  * The 160x128 is the nominal size of our standard faceplate's display.
  */
-static const int kDisplayBufferSize = 160 * 128 / 10;
+// The two buffers together take the same internal RAM as the single buffer we
+// used to have, since internal RAM is tight during playback. lv_color_t is 3
+// bytes but we draw RGB565, so each buffer holds 1536 pixels (9.6 rows).
+static const int kDisplayBufferSize = 160 * 128 / 20;
 DMA_ATTR static lv_color_t kDisplayBuffer[kDisplayBufferSize];
 DMA_ATTR static lv_color_t kDisplayBuffer2[kDisplayBufferSize];
 
