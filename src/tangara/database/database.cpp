@@ -16,6 +16,7 @@
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -64,6 +65,11 @@ static const char kKeyCustom[] = "U\0";
 static const char kKeyCollator[] = "collator";
 
 static constexpr size_t kMaxParallelism = 2;
+
+// Size of leveldb's cache of decoded table blocks. This lives in PSRAM, which
+// we have plenty of; a bigger cache means fewer SD card reads when scrolling
+// back and forth through large lists.
+static constexpr size_t kBlockCacheBytes = 512 * 1024;
 
 static std::atomic<bool> sIsDbOpen(false);
 
@@ -146,7 +152,7 @@ auto Database::Open(ITagParser& parser,
           [&]() -> cpp::result<Database*, DatabaseError> {
             leveldb::DB* db;
             std::unique_ptr<leveldb::Cache> cache{
-                leveldb::NewLRUCache(128 * 1024)};
+                leveldb::NewLRUCache(kBlockCacheBytes)};
 
             leveldb::Options options;
             options.env = sEnv.env();
@@ -209,6 +215,13 @@ Database::Database(leveldb::DB* db,
 }
 
 Database::~Database() {
+  // Cached cursors pin parts of the db, so they must go before it does.
+  {
+    std::lock_guard<std::mutex> lock{cursors_mutex_};
+    for (auto& c : cursors_) {
+      c.it.reset();
+    }
+  }
   // Delete db_ first so that any outstanding background work finishes before
   // the background task is killed.
   delete db_;
@@ -245,8 +258,10 @@ auto Database::sizeOnDiskBytes() -> size_t {
 auto Database::put(const std::string& key, const std::string& val) -> void {
   if (val.empty()) {
     db_->Delete(leveldb::WriteOptions{}, kKeyCustom + key);
+    write_generation_++;
   } else {
     db_->Put(leveldb::WriteOptions{}, kKeyCustom + key, val);
+    write_generation_++;
   }
 }
 
@@ -293,6 +308,7 @@ auto Database::setTrackData(TrackId id, const TrackData& data) -> void {
   std::string raw_val = EncodeDataValue(data);
 
   auto res = db_->Put(leveldb::WriteOptions(), key, raw_val);
+  write_generation_++;
   if (!res.ok()) {
     ESP_LOGI(kTag, "Updating track data failed for track ID: %lu", id);
   }
@@ -377,6 +393,7 @@ auto Database::updateIndexes(std::optional<bool> skip_verify) -> void {
         // The value was malformed. Drop this record.
         ESP_LOGW(kTag, "dropping malformed metadata");
         db_->Delete(leveldb::WriteOptions(), it->key());
+        write_generation_++;
         continue;
       }
 
@@ -419,6 +436,7 @@ auto Database::updateIndexes(std::optional<bool> skip_verify) -> void {
         batch.Delete(EncodePathKey(track->filepath));
 
         db_->Write(leveldb::WriteOptions(), &batch);
+        write_generation_++;
         continue;
       }
 
@@ -443,6 +461,7 @@ auto Database::updateIndexes(std::optional<bool> skip_verify) -> void {
       dbIngestTagHashes(*tags, track->individual_tag_hashes, batch);
       dbCreateIndexesForTrack(*track, *tags, batch);
       db_->Write(leveldb::WriteOptions(), &batch);
+      write_generation_++;
     }
   }
 
@@ -522,6 +541,7 @@ auto Database::processCandidateCallback(FILINFO& info, std::string_view path)
   batch.Put(EncodePathKey(path), TrackIdToBytes(data->id));
 
   db_->Write(leveldb::WriteOptions(), &batch);
+  write_generation_++;
 }
 
 auto Database::indexingCompleteCallback() -> void {
@@ -701,6 +721,7 @@ auto Database::dbRemoveIndexes(std::shared_ptr<TrackData> data) -> void {
 
       auto key = EncodeIndexKey(it->first);
       auto status = db_->Delete(leveldb::WriteOptions{}, key);
+      write_generation_++;
       if (!status.ok()) {
         return;
       }
@@ -770,12 +791,56 @@ auto seekToOffset(leveldb::Iterator* it, int offset) {
   }
 }
 
+auto Database::takeCursor(const SearchKey& c, uint32_t generation)
+    -> std::unique_ptr<leveldb::Iterator> {
+  if (!c.key) {
+    return {};
+  }
+  std::string_view want{c.key->data(), c.key->size()};
+  std::lock_guard<std::mutex> lock{cursors_mutex_};
+  for (auto& slot : cursors_) {
+    if (!slot.it) {
+      continue;
+    }
+    if (slot.generation != generation) {
+      // The db has changed since this cursor was made, so it's stale.
+      slot.it.reset();
+      continue;
+    }
+    if (slot.it->Valid() &&
+        std::string_view{slot.it->key().data(), slot.it->key().size()} ==
+            want) {
+      return std::move(slot.it);
+    }
+  }
+  return {};
+}
+
+auto Database::returnCursor(std::unique_ptr<leveldb::Iterator> it,
+                            uint32_t generation) -> void {
+  if (!it || !it->Valid()) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock{cursors_mutex_};
+  // Put the cursor at the front, dropping the least recently used one.
+  for (size_t i = cursors_.size() - 1; i > 0; i--) {
+    cursors_[i] = std::move(cursors_[i - 1]);
+  }
+  cursors_[0] = {std::move(it), generation};
+}
+
 auto Database::getRecord(const SearchKey& c)
     -> std::optional<std::pair<std::pmr::string, Record>> {
-  std::unique_ptr<leveldb::Iterator> it{
-      db_->NewIterator(leveldb::ReadOptions{})};
+  // Lists step through the db one record at a time. Creating a leveldb
+  // iterator and seeking it is comparatively expensive, so we try to pick up
+  // a cursor left sitting on this key by the previous step instead.
+  uint32_t generation = write_generation_.load();
+  std::unique_ptr<leveldb::Iterator> it = takeCursor(c, generation);
+  if (!it) {
+    it.reset(db_->NewIterator(leveldb::ReadOptions{}));
+    it->Seek(c.startKey());
+  }
 
-  it->Seek(c.startKey());
   seekToOffset(it.get(), c.offset);
   if (!it->Valid() || !it->key().starts_with(std::string_view{c.prefix})) {
     return {};
@@ -787,9 +852,12 @@ auto Database::getRecord(const SearchKey& c)
     return {};
   }
 
-  return std::make_pair(std::pmr::string{it->key().data(), it->key().size(),
-                                         &memory::kSpiRamResource},
-                        Record{*key, it->value()});
+  auto res = std::make_pair(
+      std::pmr::string{it->key().data(), it->key().size(),
+                       &memory::kSpiRamResource},
+      Record{*key, it->value()});
+  returnCursor(std::move(it), generation);
+  return res;
 }
 
 auto Database::countRecords(const SearchKey& c) -> size_t {

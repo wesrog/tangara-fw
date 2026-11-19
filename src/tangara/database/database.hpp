@@ -8,9 +8,12 @@
 
 #include <stdint.h>
 #include <sys/_stdint.h>
+#include <array>
+#include <atomic>
 #include <cstdint>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stack>
 #include <string>
@@ -163,6 +166,26 @@ class Database {
 
   auto getRecord(const SearchKey& c)
       -> std::optional<std::pair<std::pmr::string, Record>>;
+
+  /*
+   * A few leveldb iterators kept from recent getRecord calls, so that
+   * stepping a list one record along doesn't need a new iterator and seek.
+   * Each is tagged with the write generation it was created in; any write to
+   * the db makes the cached cursors stale.
+   */
+  struct CachedCursor {
+    std::unique_ptr<leveldb::Iterator> it;
+    uint32_t generation;
+  };
+  static constexpr size_t kCachedCursors = 4;
+  std::mutex cursors_mutex_;
+  std::array<CachedCursor, kCachedCursors> cursors_;
+  std::atomic<uint32_t> write_generation_{0};
+
+  auto takeCursor(const SearchKey& c, uint32_t generation)
+      -> std::unique_ptr<leveldb::Iterator>;
+  auto returnCursor(std::unique_ptr<leveldb::Iterator>, uint32_t generation)
+      -> void;
   auto countRecords(const SearchKey& c) -> size_t;
   auto jumpGroup(const std::pmr::string& prefix,
                  std::string_view current_key,
