@@ -426,42 +426,105 @@ function widgets.InfiniteList(parent, iterator, opts)
     jumpable = probe:value() ~= nil
   end
 
-  local function remove_top()
-    local obj = infinite_list.root:get_child(0)
-    obj:delete()
-    first_index = first_index + 1
-    bck_iterator:next()
-  end
-
-  local function remove_last()
-    local obj = infinite_list.root:get_child(-1)
-    obj:delete()
-    last_index = last_index - 1
-    fwd_iterator:prev()
-  end
+  -- What each row currently shows. Rows are reused as the list scrolls (see
+  -- recycle_row), so their handlers look their item up here rather than
+  -- capturing it.
+  local rows = setmetatable({}, { __mode = "k" })
 
   local jump
   -- Keeps the letter overlay (if it's showing) in step with the focused row.
   local follow_letter
 
-  local function add_item(item, index, item_opts)
+  local function icon_for(item)
+    if opts.get_icon then
+      return opts.get_icon(item)
+    end
+    return nil
+  end
+
+  local add_item
+  local recycle_row
+
+  -- Called when a row gains focus. Keeps a few rows either side of the focused
+  -- one, by moving the row at the far end of the list round to the near end.
+  local function on_row_focused(btn)
+    local row = rows[btn]
+    if not row then return end
+    local this_item = row.index
+    btn:scroll_to_view(false)
+    if follow_letter then
+      follow_letter(row.item)
+    end
+    if refreshing then return end
+    if this_item > last_selected and this_item - first_index > 3 then
+      -- moving forward
+      local to_add = fwd_iterator:next()
+      if to_add then
+        local top = infinite_list.root:get_child(0)
+        first_index = first_index + 1
+        bck_iterator:next()
+        last_index = last_index + 1
+        if not recycle_row(top, to_add, last_index, -1) then
+          top:delete()
+          last_index = last_index - 1
+          add_item(to_add, last_index + 1)
+        end
+      end
+    end
+    if this_item < last_selected then
+      -- moving backward (this may go above index 0 after a jump)
+      if last_index - this_item > 3 then
+        local to_add = bck_iterator:value();
+        if to_add then
+          bck_iterator:prev()
+          local bottom = infinite_list.root:get_child(-1)
+          last_index = last_index - 1
+          fwd_iterator:prev()
+          first_index = first_index - 1
+          if not recycle_row(bottom, to_add, first_index, 0) then
+            bottom:delete()
+            first_index = first_index + 1
+            add_item(to_add, first_index - 1)
+          end
+          refresh_group()
+        end
+      end
+    end
+    last_selected = this_item
+  end
+
+  -- Shows `item` in an existing row, and moves the row to child position
+  -- `position` (0 for the top, -1 for the bottom). Returns false if the row
+  -- can't be reused, in which case nothing has changed.
+  recycle_row = function(btn, item, index, position)
+    if not infinite_list.root:set_btn(btn, icon_for(item), tostring(item)) then
+      return false
+    end
+    rows[btn] = { item = item, index = index, base = base }
+    btn:move_to_index(position)
+    if position == -1 then
+      -- Moving forward: the row also goes to the end of the focus order.
+      -- (Moving backward rebuilds the focus order with refresh_group.)
+      local group = lvgl.group.get_default()
+      lvgl.group.remove_obj(btn)
+      group:add_obj(btn)
+    end
+    return true
+  end
+
+  add_item = function(item, index, item_opts)
     if not item then
       return
     end
     item_opts = item_opts or {}
-    local this_item = index
-    local this_base = base
     local add_to_top = false
-    if this_item < first_index then
-      first_index = this_item
+    if index < first_index then
+      first_index = index
       add_to_top = true
     end
-    if this_item > last_index then last_index = index end
-    local icon = nil
-    if opts.get_icon then
-      icon = opts.get_icon(item)
-    end
-    local btn = infinite_list.root:add_btn(icon, tostring(item))
+    if index > last_index then last_index = index end
+    local btn = infinite_list.root:add_btn(icon_for(item), tostring(item))
+    rows[btn] = { item = item, index = index, base = base }
     if add_to_top then
       btn:move_to_index(0)
     end
@@ -470,12 +533,21 @@ function widgets.InfiniteList(parent, iterator, opts)
     end
     -- opts.callback should take an item (and optionally its index in the
     -- list, and the iterator that index is relative to) and return a function
-    -- matching the arg of onClicked
+    -- matching the arg of onClicked. It's called when the row is clicked,
+    -- since the row may be showing a different item by then.
     if opts.callback then
-      btn:onClicked(opts.callback(item, this_item, this_base))
+      btn:onClicked(function(...)
+        local row = rows[btn]
+        local fn = row and opts.callback(row.item, row.index, row.base)
+        if fn then return fn(...) end
+      end)
     end
     if opts.play_callback then
-      widgets.play_actions[btn] = opts.play_callback(item, this_item, this_base)
+      widgets.play_actions[btn] = function(...)
+        local row = rows[btn]
+        local fn = row and opts.play_callback(row.item, row.index, row.base)
+        if fn then return fn(...) end
+      end
     end
     if jumpable then
       btn:add_flag(lvgl.FLAG.USER_1)
@@ -486,35 +558,14 @@ function widgets.InfiniteList(parent, iterator, opts)
     -- animation is cut short by the next.
     btn:clear_flag(lvgl.FLAG.SCROLL_ON_FOCUS)
     btn:onevent(lvgl.EVENT.FOCUSED, function()
-      btn:scroll_to_view(false)
-      if follow_letter then
-        follow_letter(item)
-      end
-      if refreshing then return end
-      if this_item > last_selected and this_item - first_index > 3 then
-        -- moving forward
-        local to_add = fwd_iterator:next()
-        if to_add then
-          remove_top()
-          add_item(to_add, last_index + 1)
-        end
-      end
-      if this_item < last_selected then
-        -- moving backward (this may go above index 0 after a jump)
-        if last_index - this_item > 3 then
-          local to_add = bck_iterator:value();
-          if to_add then
-            bck_iterator:prev()
-            remove_last()
-            add_item(to_add, first_index - 1)
-            refresh_group()
-          end
-        end
-      end
-      last_selected = this_item
+      on_row_focused(btn)
     end)
     if opts.context_callback then
-      btn:onevent(lvgl.EVENT.LONG_PRESSED, opts.context_callback(item, this_item))
+      btn:onevent(lvgl.EVENT.LONG_PRESSED, function(...)
+        local row = rows[btn]
+        local fn = row and opts.context_callback(row.item, row.index)
+        if fn then return fn(...) end
+      end)
     end
     btn:add_style(styles.list_item)
     return btn
