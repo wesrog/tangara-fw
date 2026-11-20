@@ -20,12 +20,18 @@ namespace codecs {
 
 [[maybe_unused]] static const char kTag[] = "flac";
 
+// dr_flac's buffers are fastest in internal RAM, but they're large (~40 KiB
+// for some files) and internal RAM can be too fragmented to fit them. Fall
+// back to PSRAM in that case rather than failing (which aborts).
 static void* onMalloc(size_t sz, void* pUserData) {
-  return heap_caps_malloc(sz, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  return heap_caps_malloc_prefer(sz, 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT,
+                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 
 static void* onRealloc(void* p, size_t sz, void* pUserData) {
-  return heap_caps_realloc(p, sz, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  return heap_caps_realloc_prefer(p, sz, 2,
+                                  MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT,
+                                  MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 
 static void onFree(void* p, void* pUserData) {

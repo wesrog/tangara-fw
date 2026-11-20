@@ -43,6 +43,9 @@ class Display {
   /* Driver callback invoked by LVGL when there is new data to display. */
   void OnLvglFlush(const lv_area_t* area, uint8_t* px_map);
 
+  /* Waits for an in-flight pixel transfer started by OnLvglFlush, if any. */
+  void FinishPendingFlush();
+
   // Not copyable or movable.
   Display(const Display&) = delete;
   Display& operator=(const Display&) = delete;
@@ -57,6 +60,11 @@ class Display {
   uint_fast8_t pad_;
 
   lv_display_t* display_ = nullptr;
+
+  // Pixel data transfer queued by OnLvglFlush that hasn't been collected yet.
+  // While this is set, we hold the SPI bus.
+  bool flush_pending_;
+  spi_transaction_t pixel_transaction_;
 
   enum TransactionType {
     COMMAND = 0,
