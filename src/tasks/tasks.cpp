@@ -54,7 +54,12 @@ auto AllocateStack<Type::kAudioFileReader>() -> std::span<StackType_t> {
 // separately.
 template <>
 auto AllocateStack<Type::kUi>() -> std::span<StackType_t> {
-  constexpr std::size_t size = 20 * 1024;
+  // The UI task runs LVGL and Lua, and some paths nest deeply (e.g. a click
+  // wheel event whose Lua handler rebuilds a whole list and then pushes a new
+  // screen). 20 KiB overflowed on those paths, silently trampling the statics
+  // below the stack (FatFS locks, Lua properties). This must stay in internal
+  // RAM, since the UI task writes to NVS.
+  constexpr std::size_t size = 32 * 1024;
   static StackType_t sStack[size];
   return {sStack, size};
 }

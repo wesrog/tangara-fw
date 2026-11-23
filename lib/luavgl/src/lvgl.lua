@@ -1212,6 +1212,16 @@ end
 function list:get_btn_text(btn)
 end
 
+--- reuse a button made by add_btn for a new row, changing its icon and text
+--- in place. Returns false, changing nothing, if one has an icon and the other
+--- doesn't.
+--- @param btn Object
+--- @param icon ImgSrc | nil
+--- @param text string
+--- @return boolean
+function list:set_btn(btn, icon, text)
+end
+
 ---
 --- Roller widget
 ---@class Roller: Object
