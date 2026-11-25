@@ -221,6 +221,11 @@ auto Playlist::serialiseCache() -> bool {
   if (!file_open_) {
     return false;
   }
+  // The place in the queue is now saved every so often during playback, so
+  // only rewrite the cache when the queue has actually changed.
+  if (!cache_dirty_) {
+    return true;
+  }
 
   FIL file;
 
@@ -248,11 +253,12 @@ auto Playlist::serialiseCache() -> bool {
 
   UINT bytes_written = 0;
   f_write(&file, encoded.data(), encoded.size(), &bytes_written);
+  f_close(&file);
   if (bytes_written != encoded.size()) {
     return false;
   }
 
-  f_close(&file);
+  cache_dirty_ = false;
   return true;
 }
 
@@ -302,6 +308,7 @@ auto Playlist::deserialiseCache() -> bool {
   }
 
   f_close(&file);
+  cache_dirty_ = false;
   return true;
 }
 
@@ -310,6 +317,7 @@ auto Playlist::close() -> void {
     f_close(&file_);
     file_open_ = false;
     file_error_ = false;
+    cache_dirty_ = true;
   }
 }
 
@@ -378,6 +386,7 @@ auto Playlist::countItems() -> void {
       offset_cache_.push_back(offset);
     }
     total_size_++;
+    cache_dirty_ = true;
   }
 
   f_rewind(&file_);
@@ -548,6 +557,7 @@ auto MutablePlaylist::clearLocked() -> bool {
   }
 
   total_size_ = 0;
+  cache_dirty_ = true;
   current_value_.clear();
   offset_cache_.clear();
   pos_ = -1;
@@ -581,6 +591,7 @@ auto MutablePlaylist::appendAll(const std::vector<std::string>& paths)
     buf += path;
     buf += '\n';
     total_size_++;
+    cache_dirty_ = true;
   }
   if (buf.empty()) {
     return;
@@ -643,6 +654,7 @@ auto MutablePlaylist::append(Item i) -> void {
       current_value_ = path;
     }
     total_size_++;
+    cache_dirty_ = true;
   }
 
   // Restore position
