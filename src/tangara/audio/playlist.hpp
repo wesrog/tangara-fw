@@ -77,6 +77,9 @@ class Playlist {
 
   /* List of offsets determined by sample size */
   std::pmr::vector<FSIZE_t> offset_cache_;
+  /* Whether offset_cache_ or total_size_ changed since the cache file was
+   * last written or read. */
+  bool cache_dirty_ = true;
 
   /*
    * How many tracks per offset saved (ie, a value of 100 means every 100 tracks

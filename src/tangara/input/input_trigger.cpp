@@ -16,7 +16,8 @@ Trigger::Trigger()
     : touch_time_ms_(),
       was_pressed_(false),
       was_double_click_(false),
-      times_long_pressed_(0) {}
+      times_long_pressed_(0),
+      long_press_delay_ms_(kLongPressDelayMs) {}
 
 auto Trigger::update(bool is_pressed) -> State {
   // Bail out early if we're in a steady-state of not pressed.
@@ -62,7 +63,7 @@ auto Trigger::update(bool is_pressed) -> State {
   // Now the more complicated case: the user is continuing to press the button.
   if (times_long_pressed_ == 0) {
     // We haven't fired yet, so we wait for the long-press event.
-    if (now_ms - *touch_time_ms_ >= kLongPressDelayMs) {
+    if (now_ms - *touch_time_ms_ >= long_press_delay_ms_) {
       times_long_pressed_++;
       return State::kLongPress;
     }
@@ -70,7 +71,7 @@ auto Trigger::update(bool is_pressed) -> State {
     // We've already fired at least once. How long has the user been holding
     // the key for?
     uint64_t time_since_long_press =
-        now_ms - (*touch_time_ms_ + kLongPressDelayMs);
+        now_ms - (*touch_time_ms_ + long_press_delay_ms_);
 
     // How many times should we have fired?
     // 1 initial fire (for the long-press), plus one additional fire every

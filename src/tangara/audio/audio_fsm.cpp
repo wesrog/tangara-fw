@@ -7,9 +7,11 @@
 #include "audio/audio_fsm.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <variant>
 
@@ -65,6 +67,32 @@ static const TickType_t kSettingsWriteDelay = pdMS_TO_TICKS(2000);
 static TimerHandle_t sSettingsWriteTimer = nullptr;
 static auto schedulePrefetch() -> void;
 
+// The queue's track list is written to the SD card as it is built, but the
+// place in it (queue position, track position, repeat and shuffle) used to be
+// saved only when the device went idle or the card was unmounted. A reboot,
+// crash or flat battery mid-play lost it. Now the place is also saved:
+//  - a few seconds after the current track changes (long enough that rapid
+//    skipping costs one write, and that a track which crashes the decoder
+//    straight away isn't saved as the one to resume),
+//  - every kSavePlaceInterval seconds of playback,
+//  - shortly after pausing, and after the queue itself changes.
+// Each save is two small database puts (plus the queue's offset cache when
+// the queue has grown), done on a background worker, so the audio path never
+// waits on it.
+static constexpr uint32_t kSavePlaceInterval = 30;
+static constexpr uint32_t kTrackChangeSaveDelayMs = 3000;
+static constexpr uint32_t kPauseSaveDelayMs = 500;
+static constexpr uint32_t kQueueChangeSaveDelayMs = 3000;
+static TimerHandle_t sSaveTimer = nullptr;
+// False until the saved queue has been restored, so that nothing overwrites
+// the saved place before it has been read back.
+static std::atomic<bool> sCanSave{false};
+// Saves run on any of the background workers; keep them in order.
+static std::mutex sSaveMutex;
+// The place most recently saved. Only touched on the audio task.
+static std::string sLastSavedUri;
+static uint32_t sLastSavedPosition = 0;
+
 std::shared_ptr<system_fsm::ServiceLocator> AudioState::sServices;
 
 std::shared_ptr<FatfsStreamFactory> AudioState::sStreamFactory;
@@ -102,6 +130,10 @@ auto AudioState::emitPlaybackUpdate(bool paused) -> void {
                current.first->start_offset.value_or(0);
   }
 
+  if (position) {
+    maybeSavePlace(current.first->uri, *position);
+  }
+
   // If we've got an elapsed duration and it's more than 5 minutes
   // increment a counter. Every 60 counts (ie, every minute) save the current
   // elapsed position
@@ -124,6 +156,7 @@ auto AudioState::emitPlaybackUpdate(bool paused) -> void {
 }
 
 auto AudioState::loadQueue() -> void {
+  sCanSave = false;
   sServices->bg_worker().Dispatch<void>([]() {
     auto db = sServices->database().lock();
     if (!db) {
@@ -162,10 +195,110 @@ auto AudioState::loadQueue() -> void {
       db->put(kQueueKey, "");
       sServices->track_queue().deserialise(*queue);
     }
+
+    // The keys above were cleared, so write the restored place back once it
+    // has had a few seconds to prove it doesn't crash. Otherwise turning the
+    // device off again without pressing play would lose it.
+    sCanSave = true;
+    requestSave(kTrackChangeSaveDelayMs, true);
+  });
+}
+
+static void save_timer_cb(TimerHandle_t) {
+  events::Audio().Dispatch(internal::SavePlaybackState{});
+}
+
+auto AudioState::requestSave(uint32_t delay_ms, bool reset) -> void {
+  // Created at boot, before anything can ask for a save.
+  if (!sSaveTimer) {
+    return;
+  }
+  if (!reset && xTimerIsTimerActive(sSaveTimer)) {
+    return;
+  }
+  // Changing the period also (re)starts the timer.
+  xTimerChangePeriod(sSaveTimer, pdMS_TO_TICKS(delay_ms), 0);
+}
+
+auto AudioState::maybeSavePlace(const std::string& uri, uint32_t position)
+    -> void {
+  if (uri != sLastSavedUri) {
+    requestSave(kTrackChangeSaveDelayMs, false);
+    return;
+  }
+  uint32_t moved = position > sLastSavedPosition
+                       ? position - sLastSavedPosition
+                       : sLastSavedPosition - position;
+  // While paused this only catches seeks, since the position stands still.
+  if (moved >= kSavePlaceInterval) {
+    savePlaybackState();
+  }
+}
+
+void AudioState::react(const internal::SavePlaybackState&) {
+  savePlaybackState();
+}
+
+auto AudioState::savePlaybackState(std::function<void()> done) -> void {
+  if (!sCanSave) {
+    if (done) {
+      done();
+    }
+    return;
+  }
+
+  // Work out the place here, on the audio task, which owns the stream cues.
+  std::optional<std::pair<std::string, uint32_t>> place;
+  auto current = sStreamCues.current();
+  if (current.first && sDrainFormat) {
+    uint32_t seconds = (current.second / (sDrainFormat->num_channels *
+                                          sDrainFormat->sample_rate)) +
+                       current.first->start_offset.value_or(0);
+    place.emplace(current.first->uri, seconds);
+    sLastSavedUri = current.first->uri;
+    sLastSavedPosition = seconds;
+  } else {
+    sLastSavedUri.clear();
+    sLastSavedPosition = 0;
+  }
+
+  sServices->bg_worker().Dispatch<void>([=]() {
+    {
+      std::lock_guard<std::mutex> lock{sSaveMutex};
+      auto db = sServices->database().lock();
+      if (sCanSave && db) {
+        auto& queue = sServices->track_queue();
+        if (queue.totalSize() <= queue.currentPosition()) {
+          // Nothing is playing, so there's no place to come back to.
+          db->put(kQueueKey, "");
+          db->put(kCurrentFileKey, "");
+        } else {
+          db->put(kQueueKey, queue.serialise());
+          if (place) {
+            cppbor::Array current_track{
+                cppbor::Tstr{place->first},
+                cppbor::Uint{place->second},
+            };
+            db->put(kCurrentFileKey, current_track.toString());
+          } else {
+            db->put(kCurrentFileKey, "");
+          }
+        }
+      }
+    }
+    if (done) {
+      done();
+    }
   });
 }
 
 void AudioState::react(const QueueUpdate& ev) {
+  // Repeat, shuffle, clearing and adding tracks all change what should be
+  // restored after a reboot. Track changes are caught by maybeSavePlace().
+  if (ev.reason == QueueUpdate::kExplicitUpdate) {
+    requestSave(kQueueChangeSaveDelayMs, true);
+  }
+
   SetTrack cmd{
       .new_track = std::monostate{},
       .seek_to_second = ev.seek_to_second,
@@ -609,6 +742,9 @@ namespace states {
 void Uninitialised::react(const system_fsm::BootComplete& ev) {
   sServices = ev.services;
 
+  sSaveTimer = xTimerCreate("save_place", pdMS_TO_TICKS(1000), false, NULL,
+                            save_timer_cb);
+
   sDrainBuffers = std::make_unique<drivers::OutputBuffers>(
       kTrackDrainLatencySamples, kSystemDrainLatencySamples);
   sDrainBuffers->first.suspend(true);
@@ -672,33 +808,11 @@ auto Standby::entry() -> void {
 }
 
 void Standby::react(const system_fsm::UnmountRequest& ev) {
-  auto current = sStreamCues.current();
-  sServices->bg_worker().Dispatch<void>([=]() {
-    auto db = sServices->database().lock();
-    if (!db) {
-      events::System().Dispatch(UnmountReady{.idle = ev.idle});
-      return;
-    }
-    auto& queue = sServices->track_queue();
-    if (queue.totalSize() <= queue.currentPosition()) {
-      // Nothing is playing, so don't bother saving the queue.
-      db->put(kQueueKey, "");
-      events::System().Dispatch(UnmountReady{.idle = ev.idle});
-      return;
-    }
-    db->put(kQueueKey, queue.serialise());
-
-    if (current.first && sDrainFormat) {
-      uint32_t seconds = (current.second / (sDrainFormat->num_channels *
-                                            sDrainFormat->sample_rate)) +
-                         current.first->start_offset.value_or(0);
-      cppbor::Array current_track{
-          cppbor::Tstr{current.first->uri},
-          cppbor::Uint{seconds},
-      };
-      db->put(kCurrentFileKey, current_track.toString());
-    }
-    events::System().Dispatch(UnmountReady{.idle = ev.idle});
+  bool idle = ev.idle;
+  savePlaybackState([=]() {
+    // The card is going away; don't let a late save touch it.
+    sCanSave = false;
+    events::System().Dispatch(UnmountReady{.idle = idle});
   });
 }
 
@@ -734,6 +848,8 @@ void Playback::exit() {
   xTimerStop(sHeartbeatTimer, portMAX_DELAY);
   sDrainBuffers->first.suspend(true);
   emitPlaybackUpdate(true);
+  // Remember exactly where playback was paused.
+  requestSave(kPauseSaveDelayMs, true);
 }
 
 void Playback::react(const system_fsm::SdStateChanged& ev) {
