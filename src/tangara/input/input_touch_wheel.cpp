@@ -181,7 +181,7 @@ auto TouchWheel::read(lv_indev_data_t* data,
   }
   touch_ticks_ += ticks < 0 ? -ticks : ticks;
   if (released && touch_edge_ >= 0) {
-    ESP_LOGI(kTag,
+    ESP_LOGD(kTag,
              "edge %d: %lld ms, drift %d, ticks %d, %lld ms after scroll, "
              "tap %d, hold %d",
              touch_edge_, (last_raw_touch_us_ - touch_down_us_) / 1000,
