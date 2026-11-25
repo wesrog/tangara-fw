@@ -198,6 +198,11 @@ struct WriteSettings : tinyfsm::Event {};
 // ahead of time so that skipping to it is quicker.
 struct PrefetchNextTrack : tinyfsm::Event {};
 
+// Sent by the place-save timer, so that the current track position is read on
+// the audio task (which owns the stream cues) before the save is handed to a
+// worker.
+struct SavePlaybackState : tinyfsm::Event {};
+
 }  // namespace internal
 
 }  // namespace audio

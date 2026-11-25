@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -56,6 +57,7 @@ class AudioState : public tinyfsm::Fsm<AudioState> {
   virtual void react(const internal::StreamHeartbeat&) {}
   void react(const internal::WriteSettings&);
   void react(const internal::PrefetchNextTrack&);
+  void react(const internal::SavePlaybackState&);
 
   void react(const StepUpVolume&);
   void react(const StepDownVolume&);
@@ -84,6 +86,18 @@ class AudioState : public tinyfsm::Fsm<AudioState> {
   auto incrementPlayCount(std::string uri) -> void;
 
   auto loadQueue() -> void;
+
+  // Saves the queue and the current track's position to the database, so
+  // that playback resumes from the same place after a reboot or crash.
+  // `done` runs on the worker once the save has finished (or been skipped).
+  static auto savePlaybackState(std::function<void()> done = {}) -> void;
+  // Asks for savePlaybackState() to run after `delay_ms`. Does nothing if a
+  // save is already pending, unless `reset` is set. Safe to call from any task.
+  static auto requestSave(uint32_t delay_ms, bool reset) -> void;
+  // Called on every playback update to decide whether the place has moved
+  // enough to be worth saving.
+  static auto maybeSavePlace(const std::string& uri, uint32_t position)
+      -> void;
 
   static std::shared_ptr<system_fsm::ServiceLocator> sServices;
 
