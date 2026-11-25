@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include <cstdint>
+#include <atomic>
 #include <memory>
 
 #include "driver/spi_master.h"
@@ -18,6 +19,18 @@
 
 #include "drivers/display_init.hpp"
 #include "drivers/gpios.hpp"
+
+// TEMPORARY (stutter debugging): how long the display holds the SPI bus that
+// it shares with the SD card, and how long it waits to get it.
+namespace drivers {
+namespace dbg {
+inline std::atomic<uint32_t> sBusHeldUs{0};
+inline std::atomic<uint32_t> sBusHeldMax{0};
+inline std::atomic<uint32_t> sBusWaitUs{0};
+inline std::atomic<uint32_t> sBusWaitMax{0};
+inline std::atomic<uint32_t> sFlushes{0};
+}  // namespace dbg
+}  // namespace drivers
 
 namespace drivers {
 

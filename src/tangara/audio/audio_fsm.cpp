@@ -39,6 +39,7 @@
 #include "database/future_fetcher.hpp"
 #include "database/track.hpp"
 #include "drivers/bluetooth.hpp"
+#include "drivers/display.hpp"
 #include "drivers/bluetooth_types.hpp"
 #include "drivers/i2s_dac.hpp"
 #include "drivers/nvs.hpp"
@@ -771,8 +772,15 @@ static auto logAudioDebug(uint32_t padded_total) -> void {
   uint32_t decode_max = dbg::sDecodeUsMax.exchange(0);
   uint32_t decoded = dbg::sDecodedSamples.exchange(0);
 
+  uint32_t bus_held = drivers::dbg::sBusHeldUs.exchange(0);
+  uint32_t bus_held_max = drivers::dbg::sBusHeldMax.exchange(0);
+  uint32_t bus_wait = drivers::dbg::sBusWaitUs.exchange(0);
+  uint32_t bus_wait_max = drivers::dbg::sBusWaitMax.exchange(0);
+  uint32_t flushes = drivers::dbg::sFlushes.exchange(0);
+
   uint32_t decode_pct = window_us ? (uint64_t)decode_us * 100 / window_us : 0;
   bool abnormal = padded > 0 || misses > 0 || read_max > 100000 ||
+                  bus_held_max > 100000 || bus_wait_max > 100000 ||
                   decode_pct > 60 || decode_max > 100000;
   if (!abnormal && ++sQuiet < 10) {
     return;
@@ -782,12 +790,15 @@ static auto logAudioDebug(uint32_t padded_total) -> void {
   ESP_LOGW("adbg",
            "%s underrun=%lu smp | decode %lu%% busy max=%lums out=%lu smp | "
            "sd reads=%lu %luKiB avg=%lums max=%lums | miss=%lu (%lums) "
-           "buffered_min=%ldKiB | heap int=%u/%u psram=%u",
+           "buffered_min=%ldKiB | disp flushes=%lu held=%lums max=%lums "
+           "wait=%lums max=%lums | heap int=%u/%u psram=%u",
            abnormal ? "!!" : "ok", padded, decode_pct, decode_max / 1000,
            decoded, reads, read_bytes / 1024,
            reads ? read_us / reads / 1000 : 0, read_max / 1000, misses,
            miss_us / 1000,
            buffered_min == UINT32_MAX ? -1L : (long)(buffered_min / 1024),
+           flushes, bus_held / 1000, bus_held_max / 1000, bus_wait / 1000,
+           bus_wait_max / 1000,
            heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
            heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
