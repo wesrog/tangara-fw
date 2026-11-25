@@ -59,6 +59,9 @@ class TriggerHooks {
   auto hooks() -> std::vector<std::reference_wrapper<Hook>>;
 
   auto cancel() -> void;
+  auto setLongPressDelay(uint16_t ms) -> void {
+    trigger_.setLongPressDelay(ms);
+  }
 
   // Not copyable or movable.
   TriggerHooks(const TriggerHooks&) = delete;

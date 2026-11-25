@@ -6,6 +6,7 @@
 
 #include "input/input_touch_wheel.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <variant>
 
@@ -23,9 +24,12 @@
 #include "lua/property.hpp"
 #include "ui/ui_events.hpp"
 
+#include "esp_log.h"
 #include "esp_timer.h"
 
 namespace input {
+
+[[maybe_unused]] static constexpr char kTag[] = "wheel";
 
 TouchWheel::TouchWheel(drivers::NvsStorage& nvs,
                        drivers::TouchWheel& wheel,
@@ -56,7 +60,14 @@ TouchWheel::TouchWheel(drivers::NvsStorage& nvs,
       last_raw_touch_us_(0),
       touch_edge_(-1),
       tap_ok_(false),
-      hold_ok_(false) {}
+      hold_ok_(false),
+      max_travel_(0),
+      touch_ticks_(0),
+      landed_after_scroll_ms_(0) {
+  for (TriggerHooks* edge : {&up_, &right_, &down_, &left_}) {
+    edge->setLongPressDelay(kEdgeHoldMs);
+  }
+}
 
 // Wheel positions of the middle of each edge, in the same order as the
 // triggers in edgeTriggers(): up, left, down, right.
@@ -134,19 +145,28 @@ auto TouchWheel::read(lv_indev_data_t* data,
     touch_down_pos_ = wheel_data.wheel_position;
     touch_down_us_ = now_us;
     touch_edge_ = edgeAt(wheel_data.wheel_position, kHoldZone);
-    hold_ok_ = touch_edge_ >= 0;
+    max_travel_ = 0;
+    touch_ticks_ = 0;
     // A touch that starts soon after a scroll is the next stroke of that
-    // scroll, not a tap.
-    tap_ok_ = hold_ok_ && now_us - last_scroll_us_ >= kTapAfterScrollUs &&
+    // scroll (or the finger coming to rest at the end of it), not a tap or a
+    // hold.
+    const int64_t since_scroll_us = now_us - last_scroll_us_;
+    landed_after_scroll_ms_ = since_scroll_us / 1000;
+    hold_ok_ = touch_edge_ >= 0 && since_scroll_us >= kHoldAfterScrollUs;
+    tap_ok_ = touch_edge_ >= 0 && since_scroll_us >= kTapAfterScrollUs &&
               drivers::TouchWheel::isAngleWithin(
                   wheel_data.wheel_position, kEdgeAngles[touch_edge_],
                   kTapZone);
+  } else if (touched && now_us - touch_down_us_ < kTapSettleUs) {
+    // Still settling. Measure drift from wherever the finger settles.
+    touch_down_pos_ = wheel_data.wheel_position;
   } else if (touched) {
     int travel = static_cast<int8_t>(
         static_cast<uint8_t>(wheel_data.wheel_position - touch_down_pos_));
     if (travel < 0) {
       travel = -travel;
     }
+    max_travel_ = std::max(max_travel_, travel);
     if (travel > kTapSlop) {
       tap_ok_ = false;
     }
@@ -158,6 +178,15 @@ auto TouchWheel::read(lv_indev_data_t* data,
       last_raw_touch_us_ - touch_down_us_ > kMaxTapUs) {
     // Resting on the wheel for a while isn't a tap. (It may be a hold.)
     tap_ok_ = false;
+  }
+  touch_ticks_ += ticks < 0 ? -ticks : ticks;
+  if (released && touch_edge_ >= 0) {
+    ESP_LOGI(kTag,
+             "edge %d: %lld ms, drift %d, ticks %d, %lld ms after scroll, "
+             "tap %d, hold %d",
+             touch_edge_, (last_raw_touch_us_ - touch_down_us_) / 1000,
+             max_travel_, touch_ticks_,
+             landed_after_scroll_ms_, tap_ok_, hold_ok_);
   }
   if (touched && (ticks != 0 || scroller_.jumping())) {
     // Anything that scrolls is neither a tap nor a hold.

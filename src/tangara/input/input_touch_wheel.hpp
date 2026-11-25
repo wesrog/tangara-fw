@@ -40,26 +40,42 @@ class TouchWheel : public IInputDevice {
   // that a thumb sweeping past it mid-scroll doesn't select anything.
   static constexpr int64_t kCentreAfterScrollUs = 150'000;
 
+  // How long a finger has to stay on one of the wheel's edges for a hold.
+  // Longer than the usual long-press delay, so that a relaxed tap (which can
+  // easily take 400ms from landing to lifting) is still a tap.
+  static constexpr uint16_t kEdgeHoldMs = 600;
   // How far (in wheel units, 256 per revolution) the finger may drift while
   // tapping one of the wheel's edges before the touch stops counting as a tap.
-  static constexpr int kTapSlop = 6;
+  // Measured from where the finger settled, not where it first landed, since
+  // the first readings after landing are noisy. This matches the movement
+  // needed for the first scroll tick (WheelScroller::kFirstStep), so a touch
+  // that doesn't scroll is never too wobbly to be a tap either.
+  static constexpr int kTapSlop = 8;
+  // Readings this soon after the finger lands are ignored when measuring
+  // drift. Matches WheelScroller::kSettleUs.
+  static constexpr int64_t kTapSettleUs = 50'000;
   // Taps must land this close (in wheel units) to the middle of an edge. This
   // leaves dead zones between the edges, where a tap never triggers anything.
   static constexpr int kTapZone = 28;
-  // Touches longer than this aren't taps. It matches the long-press delay, so
+  // Touches longer than this aren't taps. It matches the hold delay, so
   // that every press is either a tap or a hold, with no gap in between where
   // nothing happens. Measured to when the finger last touched, not to the
   // end of kReleaseGraceUs.
-  static constexpr int64_t kMaxTapUs = 400'000;
+  static constexpr int64_t kMaxTapUs = kEdgeHoldMs * 1000;
   // Touches that start this soon after scrolling aren't taps, since they're
   // probably the next stroke of the scroll.
   static constexpr int64_t kTapAfterScrollUs = 200'000;
-  // Holds are much harder to trigger by accident than taps (the finger has to
-  // stay put for the whole long-press delay), so they're more forgiving. A
-  // hold may land anywhere in an edge's quarter of the wheel, start straight
-  // after a scroll, and drift a little, as long as it doesn't scroll.
+  // Holds are harder to trigger by accident than taps (the finger has to
+  // stay put for the whole hold delay), so they may land anywhere in an
+  // edge's quarter of the wheel and drift a little, as long as they don't
+  // scroll.
   static constexpr int kHoldZone = 32;
   static constexpr int kHoldSlop = 8;
+  // But a touch that lands this soon after a scroll is still part of that
+  // scroll, even if the finger then rests: coming to a stop on an edge at the
+  // end of a scroll mustn't open Now Playing or jump to the main menu. This
+  // also covers a light touch that briefly drops out as the finger stops.
+  static constexpr int64_t kHoldAfterScrollUs = 500'000;
   // Touch dropouts shorter than this are ignored.
   static constexpr int64_t kReleaseGraceUs = 60'000;
 
@@ -96,6 +112,10 @@ class TouchWheel : public IInputDevice {
   // Whether the current touch can still become a tap, or a hold.
   bool tap_ok_;
   bool hold_ok_;
+  // For the debug log of each edge touch.
+  int max_travel_;
+  int touch_ticks_;
+  int64_t landed_after_scroll_ms_;
 };
 
 }  // namespace input

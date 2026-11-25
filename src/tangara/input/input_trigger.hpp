@@ -31,12 +31,16 @@ class Trigger {
   auto update(bool is_pressed) -> State;
   auto cancel() -> void;
 
+  // How long a press must last to count as a long press.
+  auto setLongPressDelay(uint16_t ms) -> void { long_press_delay_ms_ = ms; }
+
  private:
   std::optional<uint64_t> touch_time_ms_;
   bool was_pressed_;
 
   bool was_double_click_;
   uint16_t times_long_pressed_;
+  uint16_t long_press_delay_ms_;
 };
 
 static_assert(std::is_trivially_destructible<Trigger>());
