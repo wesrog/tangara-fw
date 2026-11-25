@@ -8,6 +8,8 @@
 #include "audio/readahead_runner.hpp"
 
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "audio/audio_debug.hpp"
 
 namespace audio {
 
@@ -63,6 +65,7 @@ auto ReadaheadSource::Read(std::span<std::byte> dest) -> ssize_t {
     while (!dest.empty()) {
       ESP_LOGV(kTag, "streambuffer has %u kb available to read", xStreamBufferBytesAvailable(streambuffer_) / 1024);
       // First try a nonblocking read
+      dbg::atomicMin(dbg::sBufferedMin, xStreamBufferBytesAvailable(streambuffer_));
       size_t bytes_read = xStreamBufferReceive(streambuffer_, dest.data(), dest.size_bytes(), 0);
       if (bytes_read == 0) {
         // If the file reading task reached the end of the file,
@@ -74,7 +77,10 @@ auto ReadaheadSource::Read(std::span<std::byte> dest) -> ssize_t {
         // There is no option here but to wait. This is working with encoded bytes
         // before they go to the decoder, not decoded PCM samples, so filling dest with 0s
         // would send invalid data to the decoder.
+        int64_t miss_start = esp_timer_get_time();
         bytes_read = xStreamBufferReceive(streambuffer_, dest.data(), dest.size_bytes(), portMAX_DELAY);
+        dbg::sCacheMisses++;
+        dbg::sCacheMissUs += esp_timer_get_time() - miss_start;
       }
 
       tell_ += bytes_read;
@@ -127,8 +133,14 @@ auto ReadaheadSource::Size() -> std::optional<int64_t> {
 auto ReadaheadSource::ReadFile() -> void {
   reading_file_ = true;
   while (!shutting_down_) {
+    int64_t read_start = esp_timer_get_time();
     ssize_t read = wrapped_->Read(sFileReadBuffer);
+    uint32_t read_us = esp_timer_get_time() - read_start;
+    dbg::sReadCount++;
+    dbg::sReadUsTotal += read_us;
+    dbg::atomicMax(dbg::sReadUsMax, read_us);
     if (read > 0) {
+      dbg::sReadBytes += read;
       // If the streambuffer is full, block until the reader clears enough space
       // to write again. Because the file read has already happened at this point,
       // refilling the streambuffer to its capacity is very fast.

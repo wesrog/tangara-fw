@@ -20,10 +20,12 @@
 #include "esp_err.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/portmacro.h"
 #include "freertos/projdefs.h"
 #include "freertos/queue.h"
 
+#include "audio/audio_debug.hpp"
 #include "audio/audio_events.hpp"
 #include "audio/audio_fsm.hpp"
 #include "audio/audio_sink.hpp"
@@ -194,7 +196,14 @@ auto Decoder::continueDecode() -> bool {
     return false;
   }
 
+  int64_t decode_start = esp_timer_get_time();
   auto res = codec_->DecodeTo(codec_buffer_);
+  uint32_t decode_us = esp_timer_get_time() - decode_start;
+  dbg::sDecodeUs += decode_us;
+  dbg::atomicMax(dbg::sDecodeUsMax, decode_us);
+  if (res.has_value()) {
+    dbg::sDecodedSamples += res->samples_written;
+  }
   if (res.has_error()) {
     return false;
   }

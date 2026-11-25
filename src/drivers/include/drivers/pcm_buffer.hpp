@@ -63,6 +63,10 @@ class PcmBuffer {
    */
   auto totalReceived() -> uint32_t;
 
+  // TEMPORARY (stutter debugging): samples padded with silence because the
+  // buffer ran dry while not suspended.
+  std::atomic<uint32_t> padded_{0};
+
   // Not copyable or movable.
   PcmBuffer(const PcmBuffer&) = delete;
   PcmBuffer& operator=(const PcmBuffer&) = delete;
