@@ -22,7 +22,6 @@
 #include "esp_attr.h"
 #include "esp_err.h"
 #include "esp_heap_caps.h"
-#include "esp_timer.h"
 #include "esp_intr_alloc.h"
 #include "esp_memory_utils.h"
 #include "freertos/portable.h"
@@ -348,26 +347,6 @@ void Display::SendTransaction(TransactionType type,
   ESP_ERROR_CHECK(spi_device_transmit(handle_, &sTransaction));
 }
 
-static int64_t sBusAcquiredAt = 0;
-
-static void dbgAcquired(int64_t wait_start) {
-  sBusAcquiredAt = esp_timer_get_time();
-  uint32_t wait = sBusAcquiredAt - wait_start;
-  dbg::sBusWaitUs += wait;
-  if (wait > dbg::sBusWaitMax) {
-    dbg::sBusWaitMax = wait;
-  }
-  dbg::sFlushes++;
-}
-
-static void dbgReleased() {
-  uint32_t held = esp_timer_get_time() - sBusAcquiredAt;
-  dbg::sBusHeldUs += held;
-  if (held > dbg::sBusHeldMax) {
-    dbg::sBusHeldMax = held;
-  }
-}
-
 IRAM_ATTR
 void Display::OnLvglFlush(const lv_area_t* area, uint8_t* color_map) {
   // Swap the pixel byte order first, since we don't want to do this whilst
@@ -375,9 +354,7 @@ void Display::OnLvglFlush(const lv_area_t* area, uint8_t* color_map) {
   uint32_t size = lv_area_get_width(area) * lv_area_get_height(area);
   lv_draw_sw_rgb565_swap(color_map, size);
 
-  int64_t wait_start = esp_timer_get_time();
   spi_device_acquire_bus(handle_, portMAX_DELAY);
-  dbgAcquired(wait_start);
   gpio_.SdMuxEnable(false);
 
   // First we need to specify the rectangle of the display we're writing into.
@@ -402,7 +379,6 @@ void Display::OnLvglFlush(const lv_area_t* area, uint8_t* color_map) {
     SendCommandWithData(displays::ST77XX_RAMWR,
                         reinterpret_cast<uint8_t*>(color_map), size * 2);
     gpio_.SdMuxEnable(true);
-    dbgReleased();
     spi_device_release_bus(handle_);
   } else {
     // Otherwise, start the pixel transfer and return straight away, so that
@@ -441,7 +417,6 @@ void Display::FinishPendingFlush() {
   flush_pending_ = false;
 
   gpio_.SdMuxEnable(true);
-  dbgReleased();
   spi_device_release_bus(handle_);
 
   lv_display_flush_ready(display_);

@@ -9,8 +9,6 @@
 
 #include "esp_attr.h"
 #include "esp_log.h"
-#include "esp_timer.h"
-#include "audio/audio_debug.hpp"
 
 namespace audio {
 
@@ -25,22 +23,21 @@ static EXT_RAM_BSS_ATTR uint8_t sReadaheadStreamBufferStorage[kReadaheadStreamBu
 // The display shares its SPI bus with the SD card, so each read here holds the
 // screen up until it finishes. Smaller reads keep those waits short.
 //
-// This buffer must be in DMA-capable internal RAM. The SD driver can't DMA
-// into PSRAM, so a PSRAM buffer makes it split every read into one command per
-// 512-byte sector. When the card is slow to answer a command (as some cards
-// are now and then, for seconds at a time), that delay is then paid 16 times
-// per 8 KiB, and reads got slow enough to drain the readahead buffer and
-// stutter. Here, each read is a single multi-block command.
+// Each read should go to the card as one multi-sector command. The SD driver
+// only does that when the destination is DMA-capable (so internal RAM, not
+// PSRAM) and 4-byte aligned. Otherwise it sends one command per 512-byte
+// sector, and when the card is slow to answer for a while (some cards are, for
+// seconds at a time) every 8 KiB read pays that delay 16 times. That made
+// reads take ~640 ms for ~15 s, which drained the readahead buffer and made
+// playback stutter mid-track.
 static constexpr size_t kFileReadBufferSize = 1024 * 8;
 static DMA_ATTR std::array<std::byte, kFileReadBufferSize> sFileReadBuffer;
 
-// The buffer above only helps if the sectors FatFS reads land on a 4-byte
-// aligned address in it. FatFS reads whole sectors straight into the
-// destination after copying any partial first sector, so if the file position
-// isn't on a sector boundary, the sectors start at an odd offset in the buffer
-// and the driver falls back to one command per sector again. Codecs leave the
-// position wherever their header parsing ended, so the first read is cut short
-// to end on a sector boundary, which keeps every read after it aligned.
+// FatFS copies any partial first sector, then reads whole sectors straight into
+// the buffer just after it. Codecs leave the file position wherever their
+// header parsing ended, so the first read is cut short to end on a sector
+// boundary. Every read after it then lands whole sectors at the (aligned)
+// start of the buffer.
 static constexpr int64_t kSectorSize = 512;
 
 static auto readChunk(codecs::IStream& stream) -> ssize_t {
@@ -91,7 +88,6 @@ auto ReadaheadSource::Read(std::span<std::byte> dest) -> ssize_t {
     while (!dest.empty()) {
       ESP_LOGV(kTag, "streambuffer has %u kb available to read", xStreamBufferBytesAvailable(streambuffer_) / 1024);
       // First try a nonblocking read
-      dbg::atomicMin(dbg::sBufferedMin, xStreamBufferBytesAvailable(streambuffer_));
       size_t bytes_read = xStreamBufferReceive(streambuffer_, dest.data(), dest.size_bytes(), 0);
       if (bytes_read == 0) {
         // If the file reading task reached the end of the file,
@@ -103,10 +99,7 @@ auto ReadaheadSource::Read(std::span<std::byte> dest) -> ssize_t {
         // There is no option here but to wait. This is working with encoded bytes
         // before they go to the decoder, not decoded PCM samples, so filling dest with 0s
         // would send invalid data to the decoder.
-        int64_t miss_start = esp_timer_get_time();
         bytes_read = xStreamBufferReceive(streambuffer_, dest.data(), dest.size_bytes(), portMAX_DELAY);
-        dbg::sCacheMisses++;
-        dbg::sCacheMissUs += esp_timer_get_time() - miss_start;
       }
 
       tell_ += bytes_read;
@@ -159,14 +152,8 @@ auto ReadaheadSource::Size() -> std::optional<int64_t> {
 auto ReadaheadSource::ReadFile() -> void {
   reading_file_ = true;
   while (!shutting_down_) {
-    int64_t read_start = esp_timer_get_time();
     ssize_t read = readChunk(*wrapped_);
-    uint32_t read_us = esp_timer_get_time() - read_start;
-    dbg::sReadCount++;
-    dbg::sReadUsTotal += read_us;
-    dbg::atomicMax(dbg::sReadUsMax, read_us);
     if (read > 0) {
-      dbg::sReadBytes += read;
       // If the streambuffer is full, block until the reader clears enough space
       // to write again. Because the file read has already happened at this point,
       // refilling the streambuffer to its capacity is very fast.
@@ -187,10 +174,6 @@ auto ReadaheadSource::ReadFile() -> void {
 auto ReadaheadSource::SetPreambleFinished() -> void {
   assert(!streambuffer_);
   streambuffer_ = xStreamBufferCreateStatic(kReadaheadStreamBufferSize, 1, sReadaheadStreamBufferStorage, &streambuffer_static_);
-  // TEMPORARY (stutter debugging)
-  ESP_LOGW(kTag, "adbg readahead starts at %lld (%lld into a sector)",
-           wrapped_->CurrentPosition(),
-           wrapped_->CurrentPosition() % kSectorSize);
 
   // SD card reads can get very slow at the beginning of the file, so
   // block on partially filling the streambuffer to reduce cache misses when playback starts.

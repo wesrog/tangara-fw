@@ -12,7 +12,6 @@
 #include "codec.hpp"
 #include "dr_flac.h"
 #include "esp_heap_caps.h"
-#include "esp_memory_utils.h"
 #include "esp_log.h"
 #include "result.hpp"
 #include "sample.hpp"
@@ -25,12 +24,8 @@ namespace codecs {
 // for some files) and internal RAM can be too fragmented to fit them. Fall
 // back to PSRAM in that case rather than failing (which aborts).
 static void* onMalloc(size_t sz, void* pUserData) {
-  void* p = heap_caps_malloc_prefer(sz, 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT,
-                                    MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  // TEMPORARY (stutter debugging)
-  ESP_LOGW(kTag, "adbg flac alloc %u bytes in %s", sz,
-           esp_ptr_external_ram(p) ? "PSRAM" : "internal");
-  return p;
+  return heap_caps_malloc_prefer(sz, 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT,
+                                 MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
 
 static void* onRealloc(void* p, size_t sz, void* pUserData) {
