@@ -20,12 +20,14 @@
 #include "drivers/pcm_buffer.hpp"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/portmacro.h"
 #include "freertos/projdefs.h"
 #include "freertos/timers.h"
 #include "tinyfsm.hpp"
 
+#include "audio/audio_debug.hpp"
 #include "audio/audio_decoder.hpp"
 #include "audio/audio_events.hpp"
 #include "audio/audio_sink.hpp"
@@ -739,7 +741,61 @@ void Playback::react(const system_fsm::SdStateChanged& ev) {
   }
 }
 
+// TEMPORARY (stutter debugging): once a second, summarise what the audio
+// pipeline did. Logged at WARN so it shows at the default log level. Quiet
+// seconds are only logged every 10 s.
+static auto logAudioDebug() -> void {
+  static int64_t sLast = 0;
+  static uint32_t sLastPadded = 0;
+  static int sQuiet = 0;
+  int64_t now = esp_timer_get_time();
+  if (sLast == 0) {
+    sLast = now;
+    sLastPadded = sDrainBuffers->first.padded_;
+    return;
+  }
+  uint32_t window_us = now - sLast;
+  sLast = now;
+
+  uint32_t padded_total = sDrainBuffers->first.padded_;
+  uint32_t padded = padded_total - sLastPadded;
+  sLastPadded = padded_total;
+
+  uint32_t reads = dbg::sReadCount.exchange(0);
+  uint32_t read_bytes = dbg::sReadBytes.exchange(0);
+  uint32_t read_us = dbg::sReadUsTotal.exchange(0);
+  uint32_t read_max = dbg::sReadUsMax.exchange(0);
+  uint32_t misses = dbg::sCacheMisses.exchange(0);
+  uint32_t miss_us = dbg::sCacheMissUs.exchange(0);
+  uint32_t buffered_min = dbg::sBufferedMin.exchange(UINT32_MAX);
+  uint32_t decode_us = dbg::sDecodeUs.exchange(0);
+  uint32_t decode_max = dbg::sDecodeUsMax.exchange(0);
+  uint32_t decoded = dbg::sDecodedSamples.exchange(0);
+
+  uint32_t decode_pct = window_us ? (uint64_t)decode_us * 100 / window_us : 0;
+  bool abnormal = padded > 0 || misses > 0 || read_max > 100000 ||
+                  decode_pct > 60 || decode_max > 100000;
+  if (!abnormal && ++sQuiet < 10) {
+    return;
+  }
+  sQuiet = 0;
+
+  ESP_LOGW("adbg",
+           "%s underrun=%lu smp | decode %lu%% busy max=%lums out=%lu smp | "
+           "sd reads=%lu %luKiB avg=%lums max=%lums | miss=%lu (%lums) "
+           "buffered_min=%ldKiB | heap int=%u/%u psram=%u",
+           abnormal ? "!!" : "ok", padded, decode_pct, decode_max / 1000,
+           decoded, reads, read_bytes / 1024,
+           reads ? read_us / reads / 1000 : 0, read_max / 1000, misses,
+           miss_us / 1000,
+           buffered_min == UINT32_MAX ? -1L : (long)(buffered_min / 1024),
+           heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+           heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+           heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+}
+
 void Playback::react(const internal::StreamHeartbeat& ev) {
+  logAudioDebug();
   sStreamCues.update(sDrainBuffers->first.totalReceived());
 
   if (sStreamCues.hasStream()) {

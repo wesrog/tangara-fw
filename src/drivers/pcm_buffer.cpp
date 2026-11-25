@@ -69,6 +69,9 @@ IRAM_ATTR auto PcmBuffer::receive(std::span<int16_t> dest, bool mix, bool isr)
   }
 
   size_t total_read = first_read + second_read;
+  if (total_read < dest.size()) {
+    padded_ += dest.size() - total_read;
+  }
   if (total_read < dest.size() && !mix) {
     std::fill_n(dest.begin() + total_read, dest.size() - total_read, 0);
   }
