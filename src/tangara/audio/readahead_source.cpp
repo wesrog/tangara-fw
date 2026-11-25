@@ -7,6 +7,7 @@
 #include "audio/readahead_source.hpp"
 #include "audio/readahead_runner.hpp"
 
+#include "esp_attr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "audio/audio_debug.hpp"
@@ -23,8 +24,15 @@ static EXT_RAM_BSS_ATTR uint8_t sReadaheadStreamBufferStorage[kReadaheadStreamBu
 
 // The display shares its SPI bus with the SD card, so each read here holds the
 // screen up until it finishes. Smaller reads keep those waits short.
+//
+// This buffer must be in DMA-capable internal RAM. The SD driver can't DMA
+// into PSRAM, so a PSRAM buffer makes it split every read into one command per
+// 512-byte sector. When the card is slow to answer a command (as some cards
+// are now and then, for seconds at a time), that delay is then paid 16 times
+// per 8 KiB, and reads got slow enough to drain the readahead buffer and
+// stutter. Here, each read is a single multi-block command.
 static constexpr size_t kFileReadBufferSize = 1024 * 8;
-static EXT_RAM_BSS_ATTR std::array<std::byte, kFileReadBufferSize> sFileReadBuffer;
+static DMA_ATTR std::array<std::byte, kFileReadBufferSize> sFileReadBuffer;
 
 static_assert((kReadaheadStreamBufferSize - 1) % kFileReadBufferSize == 0,
               "kReadaheadStreamBufferSize must be an integer multiple of kFileReadBufferSize"
