@@ -7,6 +7,7 @@
 #include "audio/readahead_source.hpp"
 #include "audio/readahead_runner.hpp"
 
+#include "esp_attr.h"
 #include "esp_log.h"
 
 namespace audio {
@@ -21,8 +22,32 @@ static EXT_RAM_BSS_ATTR uint8_t sReadaheadStreamBufferStorage[kReadaheadStreamBu
 
 // The display shares its SPI bus with the SD card, so each read here holds the
 // screen up until it finishes. Smaller reads keep those waits short.
+//
+// Each read should go to the card as one multi-sector command. The SD driver
+// only does that when the destination is DMA-capable (so internal RAM, not
+// PSRAM) and 4-byte aligned. Otherwise it sends one command per 512-byte
+// sector, and when the card is slow to answer for a while (some cards are, for
+// seconds at a time) every 8 KiB read pays that delay 16 times. That made
+// reads take ~640 ms for ~15 s, which drained the readahead buffer and made
+// playback stutter mid-track.
 static constexpr size_t kFileReadBufferSize = 1024 * 8;
-static EXT_RAM_BSS_ATTR std::array<std::byte, kFileReadBufferSize> sFileReadBuffer;
+static DMA_ATTR std::array<std::byte, kFileReadBufferSize> sFileReadBuffer;
+
+// FatFS copies any partial first sector, then reads whole sectors straight into
+// the buffer just after it. Codecs leave the file position wherever their
+// header parsing ended, so the first read is cut short to end on a sector
+// boundary. Every read after it then lands whole sectors at the (aligned)
+// start of the buffer.
+static constexpr int64_t kSectorSize = 512;
+
+static auto readChunk(codecs::IStream& stream) -> ssize_t {
+  int64_t misalignment = stream.CurrentPosition() % kSectorSize;
+  size_t len = kFileReadBufferSize;
+  if (misalignment > 0) {
+    len = kSectorSize - misalignment;
+  }
+  return stream.Read({sFileReadBuffer.data(), len});
+}
 
 static_assert((kReadaheadStreamBufferSize - 1) % kFileReadBufferSize == 0,
               "kReadaheadStreamBufferSize must be an integer multiple of kFileReadBufferSize"
@@ -127,7 +152,7 @@ auto ReadaheadSource::Size() -> std::optional<int64_t> {
 auto ReadaheadSource::ReadFile() -> void {
   reading_file_ = true;
   while (!shutting_down_) {
-    ssize_t read = wrapped_->Read(sFileReadBuffer);
+    ssize_t read = readChunk(*wrapped_);
     if (read > 0) {
       // If the streambuffer is full, block until the reader clears enough space
       // to write again. Because the file read has already happened at this point,
@@ -162,7 +187,7 @@ auto ReadaheadSource::SetPreambleFinished() -> void {
   static constexpr size_t kPrefillSize = 1024 * 64;
   static_assert(kPrefillSize % kFileReadBufferSize == 0, "kPrefillSize must be an integer multiple of kFileReadBufferSize");
   for (int i = 0; i < kPrefillSize / kFileReadBufferSize; i++) {
-    size_t read = wrapped_->Read(sFileReadBuffer);
+    size_t read = readChunk(*wrapped_);
     if (read > 0) {
       xStreamBufferSend(streambuffer_, sFileReadBuffer.data(), read, portMAX_DELAY);
     }
