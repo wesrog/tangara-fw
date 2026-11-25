@@ -34,6 +34,24 @@ static EXT_RAM_BSS_ATTR uint8_t sReadaheadStreamBufferStorage[kReadaheadStreamBu
 static constexpr size_t kFileReadBufferSize = 1024 * 8;
 static DMA_ATTR std::array<std::byte, kFileReadBufferSize> sFileReadBuffer;
 
+// The buffer above only helps if the sectors FatFS reads land on a 4-byte
+// aligned address in it. FatFS reads whole sectors straight into the
+// destination after copying any partial first sector, so if the file position
+// isn't on a sector boundary, the sectors start at an odd offset in the buffer
+// and the driver falls back to one command per sector again. Codecs leave the
+// position wherever their header parsing ended, so the first read is cut short
+// to end on a sector boundary, which keeps every read after it aligned.
+static constexpr int64_t kSectorSize = 512;
+
+static auto readChunk(codecs::IStream& stream) -> ssize_t {
+  int64_t misalignment = stream.CurrentPosition() % kSectorSize;
+  size_t len = kFileReadBufferSize;
+  if (misalignment > 0) {
+    len = kSectorSize - misalignment;
+  }
+  return stream.Read({sFileReadBuffer.data(), len});
+}
+
 static_assert((kReadaheadStreamBufferSize - 1) % kFileReadBufferSize == 0,
               "kReadaheadStreamBufferSize must be an integer multiple of kFileReadBufferSize"
               " + 1 for an integer multiple of kFileReadBufferSize to fit in the streambuffer.");
@@ -142,7 +160,7 @@ auto ReadaheadSource::ReadFile() -> void {
   reading_file_ = true;
   while (!shutting_down_) {
     int64_t read_start = esp_timer_get_time();
-    ssize_t read = wrapped_->Read(sFileReadBuffer);
+    ssize_t read = readChunk(*wrapped_);
     uint32_t read_us = esp_timer_get_time() - read_start;
     dbg::sReadCount++;
     dbg::sReadUsTotal += read_us;
@@ -169,6 +187,10 @@ auto ReadaheadSource::ReadFile() -> void {
 auto ReadaheadSource::SetPreambleFinished() -> void {
   assert(!streambuffer_);
   streambuffer_ = xStreamBufferCreateStatic(kReadaheadStreamBufferSize, 1, sReadaheadStreamBufferStorage, &streambuffer_static_);
+  // TEMPORARY (stutter debugging)
+  ESP_LOGW(kTag, "adbg readahead starts at %lld (%lld into a sector)",
+           wrapped_->CurrentPosition(),
+           wrapped_->CurrentPosition() % kSectorSize);
 
   // SD card reads can get very slow at the beginning of the file, so
   // block on partially filling the streambuffer to reduce cache misses when playback starts.
@@ -182,7 +204,7 @@ auto ReadaheadSource::SetPreambleFinished() -> void {
   static constexpr size_t kPrefillSize = 1024 * 64;
   static_assert(kPrefillSize % kFileReadBufferSize == 0, "kPrefillSize must be an integer multiple of kFileReadBufferSize");
   for (int i = 0; i < kPrefillSize / kFileReadBufferSize; i++) {
-    size_t read = wrapped_->Read(sFileReadBuffer);
+    size_t read = readChunk(*wrapped_);
     if (read > 0) {
       xStreamBufferSend(streambuffer_, sFileReadBuffer.data(), read, portMAX_DELAY);
     }
