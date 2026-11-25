@@ -744,20 +744,19 @@ void Playback::react(const system_fsm::SdStateChanged& ev) {
 // TEMPORARY (stutter debugging): once a second, summarise what the audio
 // pipeline did. Logged at WARN so it shows at the default log level. Quiet
 // seconds are only logged every 10 s.
-static auto logAudioDebug() -> void {
+static auto logAudioDebug(uint32_t padded_total) -> void {
   static int64_t sLast = 0;
   static uint32_t sLastPadded = 0;
   static int sQuiet = 0;
   int64_t now = esp_timer_get_time();
   if (sLast == 0) {
     sLast = now;
-    sLastPadded = sDrainBuffers->first.padded_;
+    sLastPadded = padded_total;
     return;
   }
   uint32_t window_us = now - sLast;
   sLast = now;
 
-  uint32_t padded_total = sDrainBuffers->first.padded_;
   uint32_t padded = padded_total - sLastPadded;
   sLastPadded = padded_total;
 
@@ -795,7 +794,7 @@ static auto logAudioDebug() -> void {
 }
 
 void Playback::react(const internal::StreamHeartbeat& ev) {
-  logAudioDebug();
+  logAudioDebug(sDrainBuffers->first.padded_);
   sStreamCues.update(sDrainBuffers->first.totalReceived());
 
   if (sStreamCues.hasStream()) {
